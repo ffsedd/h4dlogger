@@ -230,6 +230,7 @@ Serial.print("NTP syncing");
     delay(1000);
     now=time(nullptr);
   }
+  Serial.println("Now: "+String(ctime(&now)));
 }
 
 ////////////////////////////////////////////////////////////
@@ -274,18 +275,18 @@ Serial.print("Detecting sensors...");
   hasTSL=detectI2C(0x29);
 
   if(hasSHT)
-    Serial.print(" SHT4x");
+    Serial.println(" SHT4x");
     sht4.begin(&Wire);
 
 if(hasBMP){
-  Serial.print(" BMP280");
+  Serial.println(" BMP280");
   if(!bmp.begin(0x76))
     if(!bmp.begin(0x77))
       hasBMP=false;
 }
 
   if(hasTSL){
-Serial.print(" TSL2591");
+Serial.println(" TSL2591");
     tsl.begin();
     tsl.setGain(TSL2591_GAIN_MED);
     tsl.setTiming(TSL2591_INTEGRATIONTIME_100MS);
