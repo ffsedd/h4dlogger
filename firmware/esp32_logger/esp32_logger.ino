@@ -23,7 +23,11 @@
 
 #define MQTT_HOST "10.11.12.1"
 #define MQTT_PORT 1883
-#define MQTT_CLIENT_ID "esp32_kitchen_lab"
+#define MQTT_CLIENT_TYPE "sensor"
+#define MQTT_CLIENT_ID   "kit_lab"
+
+#define MQTT_BASE MQTT_CLIENT_TYPE "/" MQTT_CLIENT_ID
+#define TOPIC_STATUS MQTT_BASE "/status"
 
 #define SAMPLE_INTERVAL 2000
 #define AGG_INTERVAL 300000
@@ -36,25 +40,7 @@
 #define NTP_SERVER "pool.ntp.org"
 #define TZ_INFO "CET-1CEST,M3.5.0,M10.5.0/3"
 
-////////////////////////////////////////////////////////////
-// MQTT TOPICS
-////////////////////////////////////////////////////////////
 
-#define TOPIC_STATUS "kitchen/lab/status"
-
-#define TOPIC_TEMP_MEAN "kitchen_lab/temp_5min_mean"
-#define TOPIC_TEMP_MIN  "kitchen/lab/temp_5min_min"
-#define TOPIC_TEMP_MAX  "kitchen/lab/temp_5min_max"
-
-#define TOPIC_HUM_MEAN  "kitchen/lab/hum_5min_mean"
-#define TOPIC_HUM_MIN   "kitchen/lab/hum_5min_min"
-#define TOPIC_HUM_MAX   "kitchen/lab/hum_5min_max"
-
-#define TOPIC_PRES_MEAN "kitchen/lab/pres_5min_mean"
-#define TOPIC_LUX_MEAN  "kitchen/lab/lux_5min_mean"
-
-#define TOPIC_TEMP_GRAD "kitchen/lab/temp_grad"
-#define TOPIC_HUM_GRAD  "kitchen/lab/hum_grad"
 
 ////////////////////////////////////////////////////////////
 // GLOBALS
@@ -241,7 +227,7 @@ void connectMQTT(){
 
 if(mqtt.connected())
   return;
-
+Serial.print("MQTT connecting... ");
 if(millis()-lastTry<5000)
   return;
 
@@ -255,7 +241,38 @@ lastTry=millis();
         "offline")){
 
     mqtt.publish(TOPIC_STATUS,"online",true);
-  }
+    Serial.println("connected. MQTT BASE: "+String(MQTT_BASE));
+  } else{
+    Serial.print("failed, rc=");
+    Serial.println(mqtt.state());
+  } 
+
+}
+
+void mqttSend(const char *sensor,
+              const char *metric,
+              float value,
+              bool retained=true)
+{
+  if(!mqtt.connected())
+    return;
+
+  if(isnan(value) || isinf(value))
+    return;
+
+  char topic[96];
+  char payload[32];
+
+  snprintf(topic,sizeof(topic),
+           MQTT_BASE "/%s/%s",
+           sensor,
+           metric);
+
+  snprintf(payload,sizeof(payload),
+           "%.3f",
+           value);
+
+  mqtt.publish(topic,payload,retained);
 }
 
 ////////////////////////////////////////////////////////////
@@ -274,9 +291,10 @@ Serial.print("Detecting sensors...");
   hasBMP=detectI2C(0x76)||detectI2C(0x77);
   hasTSL=detectI2C(0x29);
 
-  if(hasSHT)
-    Serial.println(" SHT4x");
-    sht4.begin(&Wire);
+if(hasSHT){
+  Serial.println(" SHT4x");
+  sht4.begin(&Wire);
+}
 
 if(hasBMP){
   Serial.println(" BMP280");
@@ -358,46 +376,37 @@ if(sht4.getEvent(&h,&t)){
 ////////////////////////////////////////////////////////////
 // PUBLISH AGGREGATES
 ////////////////////////////////////////////////////////////
-
 void publishAgg(){
 
   if(!mqtt.connected())
     return;
 
-  char buf[32];
+  if(tempAgg.count){
+    mqttSend("sht40","temp_mean",tempAgg.mean());
+    mqttSend("sht40","temp_min", tempAgg.min);
+    mqttSend("sht40","temp_max", tempAgg.max);
+  }
 
-float v=tempAgg.mean();
-if(!isnan(v)){
-  snprintf(buf,sizeof(buf),"%.2f",v);
-  mqtt.publish(TOPIC_TEMP_MEAN,buf,true);
-}
+  if(humAgg.count){
+    mqttSend("sht40","rh_mean", humAgg.mean());
+    mqttSend("sht40","rh_min",  humAgg.min);
+    mqttSend("sht40","rh_max",  humAgg.max);
+  }
 
-  snprintf(buf,sizeof(buf),"%.2f",tempAgg.min);
-  mqtt.publish(TOPIC_TEMP_MIN,buf,true);
+  if(presAgg.count)
+    mqttSend("bmp280","pressure_mean",presAgg.mean());
 
-  snprintf(buf,sizeof(buf),"%.2f",tempAgg.max);
-  mqtt.publish(TOPIC_TEMP_MAX,buf,true);
+  if(luxAgg.count)
+    mqttSend("tsl2591","lux_mean",luxAgg.mean());
 
-  snprintf(buf,sizeof(buf),"%.2f",humAgg.mean());
-  mqtt.publish(TOPIC_HUM_MEAN,buf,true);
+  mqttSend("sht40","temp_grad",tempGrad,false);
+  mqttSend("sht40","rh_grad",humGrad,false);
 
-  snprintf(buf,sizeof(buf),"%.2f",humAgg.min);
-  mqtt.publish(TOPIC_HUM_MIN,buf,true);
-
-  snprintf(buf,sizeof(buf),"%.2f",humAgg.max);
-  mqtt.publish(TOPIC_HUM_MAX,buf,true);
-
-  snprintf(buf,sizeof(buf),"%.2f",presAgg.mean());
-  mqtt.publish(TOPIC_PRES_MEAN,buf,true);
-
-  snprintf(buf,sizeof(buf),"%.2f",luxAgg.mean());
-  mqtt.publish(TOPIC_LUX_MEAN,buf,true);
-
-  snprintf(buf,sizeof(buf),"%.3f",tempGrad);
-  mqtt.publish(TOPIC_TEMP_GRAD,buf,false);
-
-  snprintf(buf,sizeof(buf),"%.3f",humGrad);
-  mqtt.publish(TOPIC_HUM_GRAD,buf,false);
+  // system metrics
+  mqttSend("system","wifi_rssi",WiFi.RSSI());
+  mqttSend("system","heap",ESP.getFreeHeap());
+  mqttSend("system","heap_min",ESP.getMinFreeHeap());
+  mqttSend("system","uptime",millis()/1000);
 
   tempAgg.reset();
   humAgg.reset();
