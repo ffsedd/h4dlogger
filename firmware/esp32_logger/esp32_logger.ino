@@ -42,7 +42,7 @@
 
 #define TOPIC_STATUS "kitchen/lab/status"
 
-#define TOPIC_TEMP_MEAN "kitchen/lab/temp_5min_mean"
+#define TOPIC_TEMP_MEAN "kitchen_lab/temp_5min_mean"
 #define TOPIC_TEMP_MIN  "kitchen/lab/temp_5min_min"
 #define TOPIC_TEMP_MAX  "kitchen/lab/temp_5min_max"
 
@@ -194,7 +194,7 @@ void connectWiFi(){
   if(WiFi.status()==WL_CONNECTED)
     return;
 
-  Serial.println("WiFi connecting");
+  Serial.print("WiFi connecting");
 
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID,WIFI_PASSWORD);
@@ -202,7 +202,7 @@ void connectWiFi(){
   uint8_t tries=0;
 
   while(WiFi.status()!=WL_CONNECTED && tries<30){
-    delay(500);
+    delay(1000);
     Serial.print(".");
     tries++;
   }
@@ -224,9 +224,10 @@ void setupTime(){
   configTzTime(TZ_INFO,NTP_SERVER);
 
   time_t now=time(nullptr);
-
+Serial.print("NTP syncing");
   while(now<1000000000){
-    delay(500);
+     Serial.print(".");
+    delay(1000);
     now=time(nullptr);
   }
 }
@@ -267,22 +268,24 @@ bool detectI2C(uint8_t addr){
 }
 
 void detectSensors(){
-
+Serial.print("Detecting sensors...");
   hasSHT=detectI2C(0x44);
   hasBMP=detectI2C(0x76)||detectI2C(0x77);
   hasTSL=detectI2C(0x29);
 
   if(hasSHT)
+    Serial.print(" SHT4x");
     sht4.begin(&Wire);
 
 if(hasBMP){
+  Serial.print(" BMP280");
   if(!bmp.begin(0x76))
     if(!bmp.begin(0x77))
       hasBMP=false;
 }
 
   if(hasTSL){
-
+Serial.print(" TSL2591");
     tsl.begin();
     tsl.setGain(TSL2591_GAIN_MED);
     tsl.setTiming(TSL2591_INTEGRATIONTIME_100MS);
