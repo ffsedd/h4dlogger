@@ -87,9 +87,15 @@ def plot(df: pd.DataFrame) -> None:
     plt.tight_layout()
     plt.show()
 
-if __name__ == "__main__":
-    data_dir = Path("/home/m/openwrt/logs/")
-    paths = data_dir.glob("all_*.log")  # daily logs
 
+def main():
+    data_dir = Path("/mnt/openwrt/logs/")
+    paths = data_dir.glob("all_*.log")  # daily logs
+    print(paths)
     df = load_logs(paths)
+    print(df.tail(30))
     plot(df)
+
+
+if __name__ == "__main__":
+    main()
