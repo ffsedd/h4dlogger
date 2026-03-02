@@ -1,67 +1,65 @@
 from __future__ import annotations
-
-import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+import pandas as pd
+import numpy as np
 
+def plot_dashboard(df: pd.DataFrame, roll_window: str = "60min", resample: str | None = None) -> None:
+    """
+    Pretty dashboard plot for environmental sensor data.
+    
+    Args:
+        df: DataFrame with MultiIndex columns (unit, sensor)
+        roll_window: Rolling mean window (e.g., '60min')
+        resample: Optional resampling frequency (e.g., '1T')
+    """
+    # Define units and their labels
+    metrics = [
+        ("temp_mean", "Temperature (°C)"),
+        ("rh_mean", "Humidity (%RH)"),
+        ("dew", "Dew Point (°C)"),
+        ("abs_hum", "Absolute Humidity (g/m³)"),
+        ("pressure_mean", "Pressure (hPa)"),
+        ("lux_mean", "Light (lx)")
+    ]
 
-UNIT_ORDER = ["temp", "hum", "dew", "abs_hum", "pres", "lux"]
+    sensors = sorted({sensor for unit, sensor in df.columns if unit in [m[0] for m in metrics]})
+    colors = plt.cm.tab10.colors
 
+    fig, axes = plt.subplots(2, 3, figsize=(18, 8), sharex=True)
+    axes = axes.flatten()
 
-def plot(
-    df: pd.DataFrame,
-    roll_window: str = "60min",
-    resample: str | None = None,
-) -> None:
+    for ax, (unit, label) in zip(axes, metrics):
+        for i, sensor in enumerate(sensors):
+            if (unit, sensor) not in df.columns:
+                continue
 
-    if resample:
-        df = df.resample(resample).mean()
+            series = df[(unit, sensor)]
+            if resample:
+                series = series.resample(resample).mean()
+            if roll_window:
+                series_smooth = series.rolling(roll_window).mean()
+            else:
+                series_smooth = series
 
-    sensors = sorted(df.columns.get_level_values("sensor").unique())
+            # Plot raw values lightly
+            ax.plot(series.index, series.values, color=colors[i % len(colors)], alpha=0.3, lw=1)
+            # Plot rolling mean prominently
+            ax.plot(series_smooth.index, series_smooth.values, color=colors[i % len(colors)], lw=2, label=sensor)
+            # Optional: shaded band for rolling window variability
+            ax.fill_between(series.index, series_smooth.values - 0.5, series_smooth.values + 0.5,
+                            color=colors[i % len(colors)], alpha=0.1)
 
-    cmap = plt.get_cmap("tab10")
-    colors = {s: cmap(i % 10) for i, s in enumerate(sensors)}
+        ax.set_title(label, fontsize=12, weight='bold')
+        ax.grid(True, which='both', ls='--', alpha=0.5)
+        ax.legend(fontsize=9)
+        ax.set_ylabel(label)
 
-    units = [u for u in UNIT_ORDER if u in df.columns.get_level_values("unit")]
+    # Format X-axis
+    for ax in axes[-3:]:
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+        plt.setp(ax.xaxis.get_majorticklabels(), rotation=30, ha='right')
 
-    fig, axes = plt.subplots(len(units), 1, sharex=True, figsize=(10, 3 * len(units)))
-
-    if len(units) == 1:
-        axes = [axes]
-
-    for ax, unit in zip(axes, units):
-
-        sub = df[unit]
-
-        for sensor in sub.columns:
-
-            s = sub[sensor].dropna()
-
-            ax.scatter(
-                s.index,
-                s.values,
-                s=2,
-                alpha=0.1,
-                color=colors[sensor],
-            )
-
-            roll = s.rolling(roll_window).mean()
-
-            ax.plot(
-                roll.index,
-                roll.values,
-                color=colors[sensor],
-                linewidth=2,
-                label=sensor,
-            )
-
-        ax.set_ylabel(unit)
-        ax.grid(alpha=0.3)
-        ax.legend(ncol=2, fontsize=8)
-
-    axes[-1].xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d %H:%M"))
-    axes[-1].set_xlabel("Time")
-
-    fig.autofmt_xdate()
-    plt.tight_layout()
+    fig.tight_layout()
+    fig.suptitle("Kitchen Lab Sensor Dashboard", fontsize=16, weight='bold', y=1.02)
     plt.show()

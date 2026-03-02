@@ -19,23 +19,23 @@ class SensorLog:
                     continue
 
                 ts_raw, topic, payload = parts
-                ts = int(ts_raw)
 
-                if topic.endswith("/sample"):
-                    sensor = topic.removesuffix("/sample")
-                    try:
-                        t, h = payload.split(",")
-                        yield ts, sensor, "temp", float(t)
-                        yield ts, sensor, "hum", float(h)
-                    except ValueError:
-                        continue
+                try:
+                    ts = int(ts_raw)
+                    value = float(payload)
+                except ValueError:
+                    continue
 
-                else:
-                    try:
-                        sensor, unit = topic.rsplit("/", 1)
-                        yield ts, sensor, unit, float(payload)
-                    except ValueError:
-                        continue
+                t = topic.split("/")
+
+                if len(t) != 4:
+                    continue
+
+                _, device, sensor, metric = t
+
+                sensor_id = f"{device}/{sensor}"
+
+                yield ts, sensor_id, metric, value
 
     def parse(self) -> pd.DataFrame:
         df = pd.DataFrame(self.rows(), columns=["ts", "sensor", "unit", "value"])
@@ -44,4 +44,5 @@ class SensorLog:
             return df
 
         df["ts"] = pd.to_datetime(df["ts"], unit="s", utc=True)
+
         return df

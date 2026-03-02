@@ -4,15 +4,18 @@ from pathlib import Path
 
 from .loader import load_logs
 from .metrics import add_metrics
-from .plot import plot
+from .plot import plot_dashboard
 
 
 def main() -> None:
 
-    log_dir = Path("/mnt/openwrt/logs/")
-    paths = log_dir.glob("all_*.log")
+    log_dir = Path.home() / "mnt" / "dlogger" / "logs"
+
+    paths = sorted(log_dir.glob("*.log"))
+    print(f"found {len(paths)} log files")
 
     df = load_logs(paths)
+    print(f"loaded {len(df)} rows")
 
     if df.empty:
         print("no data")
@@ -20,7 +23,7 @@ def main() -> None:
 
     df = add_metrics(df)
 
-    plot(
+    plot_dashboard(
         df,
         roll_window="60min",
         resample=None,
