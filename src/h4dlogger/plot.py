@@ -6,15 +6,15 @@ import numpy as np
 
 def plot_dashboard(df: pd.DataFrame, roll_window: str = "60min", resample: str | None = None) -> None:
     """
-    Pretty dashboard plot for environmental sensor data.
+    Pretty dashboard plot for environmental sensor data + system metrics.
     
     Args:
         df: DataFrame with MultiIndex columns (unit, sensor)
         roll_window: Rolling mean window (e.g., '60min')
         resample: Optional resampling frequency (e.g., '1T')
     """
-    # Define units and their labels
-    metrics = [
+    # Environmental metrics
+    env_metrics = [
         ("temp_mean", "Temperature (°C)"),
         ("rh_mean", "Humidity (%RH)"),
         ("dew", "Dew Point (°C)"),
@@ -23,13 +23,25 @@ def plot_dashboard(df: pd.DataFrame, roll_window: str = "60min", resample: str |
         ("lux_mean", "Light (lx)")
     ]
 
-    sensors = sorted({sensor for unit, sensor in df.columns if unit in [m[0] for m in metrics]})
+    # System metrics: no sensor differentiation
+    sys_metrics = [
+        ("heap", "Heap (B)"),
+        ("uptime", "Uptime (s)"),
+        ("wifi_rssi", "WiFi RSSI (dBm)")
+    ]
+
+    sensors = sorted({sensor for unit, sensor in df.columns if unit in [m[0] for m in env_metrics]})
     colors = plt.cm.tab10.colors
 
-    fig, axes = plt.subplots(2, 3, figsize=(18, 8), sharex=True)
-    axes = axes.flatten()
+    fig = plt.figure(constrained_layout=True, figsize=(18, 10))
+    gs = fig.add_gridspec(3, 4)  # 2×3 env + 1×4 sys
 
-    for ax, (unit, label) in zip(axes, metrics):
+    # ----------------- Environmental plots -----------------
+    for idx, (unit, label) in enumerate(env_metrics):
+        row = idx // 3
+        col = idx % 3
+        ax = fig.add_subplot(gs[row, col])
+
         for i, sensor in enumerate(sensors):
             if (unit, sensor) not in df.columns:
                 continue
@@ -42,24 +54,40 @@ def plot_dashboard(df: pd.DataFrame, roll_window: str = "60min", resample: str |
             else:
                 series_smooth = series
 
-            # Plot raw values lightly
             ax.plot(series.index, series.values, color=colors[i % len(colors)], alpha=0.3, lw=1)
-            # Plot rolling mean prominently
             ax.plot(series_smooth.index, series_smooth.values, color=colors[i % len(colors)], lw=2, label=sensor)
-            # Optional: shaded band for rolling window variability
-            ax.fill_between(series.index, series_smooth.values - 0.5, series_smooth.values + 0.5,
+            ax.fill_between(series.index,
+                            series_smooth.values - 0.5,
+                            series_smooth.values + 0.5,
                             color=colors[i % len(colors)], alpha=0.1)
 
         ax.set_title(label, fontsize=12, weight='bold')
-        ax.grid(True, which='both', ls='--', alpha=0.5)
+        ax.grid(True, ls='--', alpha=0.5)
         ax.legend(fontsize=9)
         ax.set_ylabel(label)
+        if row == 1:
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+            plt.setp(ax.xaxis.get_majorticklabels(), rotation=30, ha='right')
 
-    # Format X-axis
-    for ax in axes[-3:]:
+    # ----------------- System metric plots -----------------
+    for idx, (unit, label) in enumerate(sys_metrics):
+        ax = fig.add_subplot(gs[2, idx])
+        if (unit, "kit_lab/system") not in df.columns:
+            continue
+
+        series = df[(unit, "kit_lab/system")]
+        if resample:
+            series = series.resample(resample).mean()
+
+        ax.plot(series.index, series.values, color='tab:purple', lw=2)
+        ax.fill_between(series.index,
+                        series.values - 0.5,
+                        series.values + 0.5,
+                        color='tab:purple', alpha=0.1)
+        ax.set_title(label, fontsize=11)
+        ax.grid(True, ls='--', alpha=0.5)
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
         plt.setp(ax.xaxis.get_majorticklabels(), rotation=30, ha='right')
 
-    fig.tight_layout()
-    fig.suptitle("Kitchen Lab Sensor Dashboard", fontsize=16, weight='bold', y=1.02)
+    fig.suptitle("Kitchen Lab Sensor + System Dashboard", fontsize=16, weight='bold', y=1.02)
     plt.show()
