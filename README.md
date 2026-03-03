@@ -1,104 +1,130 @@
-## ESP32 Firmware Setup
+# h4dlogger Repository
 
-### 1. Add and edit WiFi secrets
+**Environmental data logging system** with ESP32 sensors, MQTT telemetry, and Python analysis tools for flexible monitoring and visualization.
 
-```bash
-cp firmware/esp32_logger/wifi_secrets_example.h \
-   firmware/esp32_logger/wifi_secrets.h
+---
 
-nano firmware/esp32_logger/wifi_secrets.h
+## Architecture
+
+```
+ESP32 Sensors (SHT40, BMP280, TSL2591)
+       │
+       │ MQTT (kitchen/lab/…)
+       ▼
+   MQTT Broker
+       │
+       ▼
+   mqtt-capture.sh (raw logs)
+       │
+       ▼
+Python Analysis Tools (h4dlogger)
+       │
+       ▼
+   Plots & Metrics
 ```
 
 ---
 
-## Install Arduino CLI
+## Repository Structure
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | sh
-sudo install -m 0755 bin/arduino-cli /usr/local/bin/arduino-cli
 ```
-
-Initialize configuration:
-
-```bash
-arduino-cli config init
-arduino-cli core update-index
-```
-
----
-
-## Install ESP32 board support
-
-```bash
-arduino-cli core install esp32:esp32
+.
+├── bin/                 # Local tools (arduino-cli)
+├── firmware/            # ESP32 firmware and configuration
+├── mqtt_server/         # MQTT logging scripts for server
+├── scripts/             # Helper shell scripts
+├── src/h4dlogger/       # Python data analysis package
+├── Makefile             # Build & run targets
+├── pyproject.toml       # Python project config
+└── uv.lock              # Dependency lockfile
 ```
 
 ---
 
-## Install required Arduino libraries
+## MQTT Topic Syntax
 
-```bash
-arduino-cli lib install \
-"AsyncTCP" \
-"ESP Async WebServer" \
-"PubSubClient" \
-"Adafruit SHT4x Library" \
-"Adafruit BMP280 Library" \
-"Adafruit TSL2591 Library"
+Hierarchical, human-readable topics:
+```
+location/device/sensor/metric
+```
+
+Example:
+```
+kitchen/lab/sht40/temp
+kitchen/lab/sht40/rh
+kitchen/lab/bmp280/pressure
+kitchen/lab/tsl2591/lux
+```
+
+Full specification: [MQTT Topic Syntax](mqtt_topic_syntax.md)
+
+### Wildcards
+- All sensors in a room: `kitchen/lab/+/+`
+- All temperature sensors: `+/+/+/temp`
+- All kitchen data: `kitchen/#`
+
+---
+
+## Components
+
+### ESP32 Firmware (`firmware/esp32_logger`)
+- Auto-detects supported sensors
+- Publishes data via MQTT
+- Async web dashboard (fast and responsive)
+- OTA firmware updates
+- WiFi watchdog recovery
+- Configuration: `wifi_secrets.h`
+- Documentation: `firmware/README.md`
+
+### MQTT Server Logging (`mqtt_server/`)
+- `mqtt-capture.sh`: capture MQTT messages into logs
+- `etc_init.d_mqttlog.sh`: service startup script
+- Documentation: `mqtt_server/README.md`
+
+### Python Analysis (`src/h4dlogger/`)
+Modules:
+| Module | Purpose |
+|--------|---------|
+| loader.py | Load raw MQTT logs |
+| parser.py | Parse topics and values |
+| metrics.py | Compute derived metrics (dew point, etc.) |
+| plot.py | Plot graphs and charts |
+| main.py | CLI entry point |
+
+Usage:
+```
+uv run dlogger plot logs/*.log
+```
+or
+```
+scripts/dlogger.sh
+```
+
+### Makefile
+Common commands:
+```
+make firmware-build
+make firmware-upload
+make mqtt-start
+make mqtt-stop
+```
+
+### Installation
+```
+uv sync      # Install Python dependencies
+uv run dlogger  # Run CLI
 ```
 
 ---
 
-## Compile firmware
-
-For **ESP32-C3 boards**:
-
-```bash
-arduino-cli compile \
---fqbn esp32:esp32:esp32 \
---verbose \
-firmware/esp32_logger
-```
+## Design Goals
+- Minimal overhead MQTT schema
+- Append-only raw logs for reproducibility
+- Efficient Python analysis and plotting
+- Scalable to multiple devices and sensors
+- Robust ESP32 firmware with recovery mechanisms
 
 ---
 
-## Upload firmware
-
-```bash
-PORT=/dev/ttyUSB0
-
-arduino-cli upload \
--p $PORT \
---fqbn esp32:esp32:esp32 \
-firmware/esp32_logger
-```
-
----
-## Monitor serial
-
-arduino-cli monitor -p /dev/ttyUSB0 -c baudrate=115200
-
-
-
-## Optional: Makefile (simpler workflow)
-
-Create `firmware/Makefile`:
-
-```make
-BOARD=esp32:esp32:esp32
-PORT=/dev/ttyUSB0
-SKETCH=firmware/esp32_logger
-
-compile:
-	arduino-cli compile --fqbn $(BOARD) $(SKETCH)
-
-upload:
-	arduino-cli upload -p $(PORT) --fqbn $(BOARD) $(SKETCH)
-```
-
-Then run:
-
-```bash
-make compile
-make upload
-```
+## License
+MIT

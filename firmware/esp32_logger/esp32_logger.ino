@@ -1,17 +1,8 @@
 #include <WiFi.h>
 #include <Wire.h>
 
-#include <AsyncTCP.h>
-#include <ESPAsyncWebServer.h>
-
 #include <PubSubClient.h>
 #include <ArduinoOTA.h>
-
-#include <Adafruit_SHT4x.h>
-#include <Adafruit_BMP280.h>
-#include <Adafruit_TSL2591.h>
-
-#include <esp_task_wdt.h>
 #include <time.h>
 #include "wifi_secrets.h"
 
@@ -183,7 +174,7 @@ void connectWiFi(){
   Serial.print("WiFi connecting");
 
   WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID,WIFI_PASSWORD);
+  WiFi.begin(WIFI_SSID,WIFI_PASS);
 
   uint8_t tries=0;
 

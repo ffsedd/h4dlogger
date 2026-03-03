@@ -13,6 +13,9 @@ def plot_dashboard(df: pd.DataFrame, roll_window: str = "60min", resample: str |
         roll_window: Rolling mean window (e.g., '60min')
         resample: Optional resampling frequency (e.g., '1T')
     """
+    
+    plt.rcParams.update({'axes.labelsize': 8, 'xtick.labelsize': 7, 'ytick.labelsize': 7})
+    
     # Environmental metrics
     env_metrics = [
         ("temp_mean", "Temperature (°C)"),
@@ -33,8 +36,8 @@ def plot_dashboard(df: pd.DataFrame, roll_window: str = "60min", resample: str |
     sensors = sorted({sensor for unit, sensor in df.columns if unit in [m[0] for m in env_metrics]})
     colors = plt.cm.tab10.colors
 
-    fig = plt.figure(constrained_layout=True, figsize=(18, 10))
-    gs = fig.add_gridspec(3, 4)  # 2×3 env + 1×4 sys
+    fig = plt.figure(constrained_layout=True, figsize=(12, 8))
+    gs = fig.add_gridspec(3, 3)  # 2×3 env + 1×4 sys
 
     # ----------------- Environmental plots -----------------
     for idx, (unit, label) in enumerate(env_metrics):
@@ -61,9 +64,9 @@ def plot_dashboard(df: pd.DataFrame, roll_window: str = "60min", resample: str |
                             series_smooth.values + 0.5,
                             color=colors[i % len(colors)], alpha=0.1)
 
-        ax.set_title(label, fontsize=12, weight='bold')
+        ax.set_title(label, fontsize=10, weight='bold')
         ax.grid(True, ls='--', alpha=0.5)
-        ax.legend(fontsize=9)
+        ax.legend(fontsize=8)
         ax.set_ylabel(label)
         if row == 1:
             ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
@@ -79,15 +82,15 @@ def plot_dashboard(df: pd.DataFrame, roll_window: str = "60min", resample: str |
         if resample:
             series = series.resample(resample).mean()
 
-        ax.plot(series.index, series.values, color='tab:purple', lw=2)
+        ax.plot(series.index, series.values, color='tab:purple', lw=1, alpha=.4)
         ax.fill_between(series.index,
                         series.values - 0.5,
                         series.values + 0.5,
-                        color='tab:purple', alpha=0.1)
-        ax.set_title(label, fontsize=11)
+                        color='tab:grey', alpha=0.1)
+        ax.set_title(label, fontsize=10)
         ax.grid(True, ls='--', alpha=0.5)
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
         plt.setp(ax.xaxis.get_majorticklabels(), rotation=30, ha='right')
 
-    fig.suptitle("Kitchen Lab Sensor + System Dashboard", fontsize=16, weight='bold', y=1.02)
+    fig.suptitle("Kitchen Lab Sensor + System Dashboard", fontsize=12, weight='bold', y=1.02)
     plt.show()
