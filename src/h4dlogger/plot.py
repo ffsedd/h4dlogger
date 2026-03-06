@@ -18,29 +18,29 @@ def plot_dashboard(df: pd.DataFrame, roll_window: str = "60min", resample: str |
     
     # Environmental metrics
     env_metrics = [
-        ("temp_mean", "Temperature (°C)"),
-        ("rh_mean", "Humidity (%RH)"),
-        ("dew", "Dew Point (°C)"),
-        ("abs_hum", "Absolute Humidity (g/m³)"),
-        ("pressure_mean", "Pressure (hPa)"),
-        ("lux_mean", "Light (lx)")
+        ("temp_mean", "Temperature (°C)", "red"), 
+        ("rh_mean", "Humidity (%RH)", "blue"),
+        ("dew", "Dew Point (°C)", "green"),
+        ("abs_hum", "Absolute Humidity (g/m³)", "orange"),
+        ("pressure_mean", "Pressure (hPa)", "purple"),
+        ("lux_mean", "Light (lx)", "brown")
     ]
 
     # System metrics: no sensor differentiation
     sys_metrics = [
-        ("heap", "Heap (B)"),
-        ("uptime", "Uptime (s)"),
-        ("wifi_rssi", "WiFi RSSI (dBm)")
+        ("heap", "Heap (B)", "black"),
+        ("uptime", "Uptime (s)", "gray"),
+        ("wifi_rssi", "WiFi RSSI (dBm)", "cyan")
     ]
 
     sensors = sorted({sensor for unit, sensor in df.columns if unit in [m[0] for m in env_metrics]})
-    colors = plt.cm.tab10.colors
+    
 
     fig = plt.figure(constrained_layout=True, figsize=(12, 8))
     gs = fig.add_gridspec(3, 3)  # 2×3 env + 1×4 sys
 
     # ----------------- Environmental plots -----------------
-    for idx, (unit, label) in enumerate(env_metrics):
+    for idx, (unit, label, color) in enumerate(env_metrics):
         row = idx // 3
         col = idx % 3
         ax = fig.add_subplot(gs[row, col])
@@ -57,12 +57,16 @@ def plot_dashboard(df: pd.DataFrame, roll_window: str = "60min", resample: str |
             else:
                 series_smooth = series
 
-            ax.plot(series.index, series.values, color=colors[i % len(colors)], alpha=0.3, lw=1)
-            ax.plot(series_smooth.index, series_smooth.values, color=colors[i % len(colors)], lw=2, label=sensor)
-            ax.fill_between(series.index,
-                            series_smooth.values - 0.5,
-                            series_smooth.values + 0.5,
-                            color=colors[i % len(colors)], alpha=0.1)
+            x = series.index
+            y = np.array(series.values).astype(float)
+            ys = np.array(series_smooth.values).astype(float)
+
+            ax.plot(x, y, color=color, alpha=0.3, lw=1)
+            ax.plot(x, ys, color=color, lw=2, label=sensor)
+            ax.fill_between(x,
+                            ys - 0.5,
+                            ys + 0.5,
+                            color=color, alpha=0.1)
 
         ax.set_title(label, fontsize=10, weight='bold')
         ax.grid(True, ls='--', alpha=0.5)
@@ -73,7 +77,7 @@ def plot_dashboard(df: pd.DataFrame, roll_window: str = "60min", resample: str |
             plt.setp(ax.xaxis.get_majorticklabels(), rotation=30, ha='right')
 
     # ----------------- System metric plots -----------------
-    for idx, (unit, label) in enumerate(sys_metrics):
+    for idx, (unit, label, color) in enumerate(sys_metrics):
         ax = fig.add_subplot(gs[2, idx])
         if (unit, "kit_lab/system") not in df.columns:
             continue
@@ -81,11 +85,15 @@ def plot_dashboard(df: pd.DataFrame, roll_window: str = "60min", resample: str |
         series = df[(unit, "kit_lab/system")]
         if resample:
             series = series.resample(resample).mean()
-
-        ax.plot(series.index, series.values, color='tab:purple', lw=1, alpha=.4)
-        ax.fill_between(series.index,
-                        series.values - 0.5,
-                        series.values + 0.5,
+        if isinstance(series.dtype, pd.api.types.CategoricalDtype) or series.nunique() < 5:
+            continue
+        x = series.index
+        y = np.array(series.values).astype(float)
+    
+        ax.plot(x, y, color=color, lw=1, alpha=.4)
+        ax.fill_between(x,
+                        y - 0.5,
+                        y + 0.5,
                         color='tab:grey', alpha=0.1)
         ax.set_title(label, fontsize=10)
         ax.grid(True, ls='--', alpha=0.5)
