@@ -22,6 +22,7 @@ def add_metrics(df: pd.DataFrame) -> pd.DataFrame:
     # Only consider mean temperature/humidity columns
     temp_cols = [c for c in df.columns if c[0] in ("temp_mean",)]
     rh_cols   = [c for c in df.columns if c[0] in ("rh_mean",)]
+    co2_cols   = [c for c in df.columns if c[0] in ("co2_smooth",)]
 
     print(f"Found temperature columns: {[c[1] for c in temp_cols]}")
     print(f"Found humidity columns: {[c[1] for c in rh_cols]}")
@@ -41,5 +42,6 @@ def add_metrics(df: pd.DataFrame) -> pd.DataFrame:
     print("Metric calculation complete.")
     print (f"DataFrame now has columns: {df.columns.tolist()}")
     print(f"DataFrame shape after adding metrics: {df.shape}")
-    print(f"Sample data after adding metrics:\n{df.head()}")
+    preview_cols = temp_cols + rh_cols + co2_cols
+    print(f"Sample data after adding metrics:\n{df[preview_cols].tail(10)}")
     return df
