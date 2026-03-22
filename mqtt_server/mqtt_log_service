@@ -1,0 +1,28 @@
+#!/bin/sh /etc/rc.common
+
+START=99
+STOP=10
+
+PIDFILE="/var/run/mqtt_logger.pid"
+LOGFILE="/mnt/data/logs/logger_stdout.log"
+
+start() {
+    echo "Starting MQTT logger"
+
+    if [ -f "$PIDFILE" ] && kill -0 "$(cat $PIDFILE)" 2>/dev/null; then
+        echo "Already running"
+        return 0
+    fi
+
+    nohup sh /mnt/data/log_mqtt.sh >> "$LOGFILE" 2>&1 &
+    echo $! > "$PIDFILE"
+}
+
+stop() {
+    echo "Stopping MQTT logger"
+
+    if [ -f "$PIDFILE" ]; then
+        kill "$(cat $PIDFILE)" 2>/dev/null
+        rm -f "$PIDFILE"
+    fi
+}

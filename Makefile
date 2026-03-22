@@ -1,16 +1,12 @@
 BOARD=esp32:esp32:esp32
 PORT=/dev/ttyUSB0
-SKETCH=firmware/esp32_logger
+SKETCH=firmware/esp32_logger_v11
+BAUDRATE=115200
+UPLOADSPEED=460800
 
 compile:
 	arduino-cli compile --verbose --fqbn $(BOARD) $(SKETCH)
 
 upload:
-upload:
-	arduino-cli upload \
-	-p /dev/ttyUSB0 \
-	--fqbn esp32:esp32:esp32 \
-	--upload-property upload.speed=460800 \
-	firmware/esp32_logger
-
-	arduino-cli monitor -p /dev/ttyUSB0 -c baudrate=115200
+	arduino-cli upload -p $(PORT)  --fqbn $(BOARD) --upload-property upload.speed=$(UPLOADSPEED) $(SKETCH)
+	arduino-cli monitor -p /dev/ttyUSB0 -c baudrate=$(BAUDRATE)

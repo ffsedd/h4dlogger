@@ -39,12 +39,14 @@ arduino-cli core install esp32:esp32
 
 ```bash
 arduino-cli lib install \
-"AsyncTCP" \
-"ESP Async WebServer" \
-"PubSubClient" \
-"Adafruit SHT4x Library" \
-"Adafruit BMP280 Library" \
-"Adafruit TSL2591 Library"
+arduino-cli lib install "AsyncTCP" || true
+arduino-cli lib install "ESP Async WebServer" || true
+arduino-cli lib install "PubSubClient" || true
+arduino-cli lib install "Adafruit SHT4x Library" || true
+arduino-cli lib install "Adafruit BMP280 Library" || true
+arduino-cli lib install "Adafruit TSL2591 Library" || true
+arduino-cli lib install "SparkFun SCD4x Arduino Library" || true
+
 ```
 
 ---
@@ -57,7 +59,7 @@ For **ESP32-C3 boards**:
 arduino-cli compile \
 --fqbn esp32:esp32:esp32 \
 --verbose \
-firmware/esp32_logger
+firmware/esp32_logger_v11
 ```
 
 ---
@@ -70,7 +72,7 @@ PORT=/dev/ttyUSB0
 arduino-cli upload \
 -p $PORT \
 --fqbn esp32:esp32:esp32 \
-firmware/esp32_logger
+firmware/esp32_logger_v11
 ```
 
 ---

@@ -1,4 +1,11 @@
+check last values
+
+http://10.11.12.1/cgi-bin/mqtt_web.sh
+
+
+
 # MQTT Topic Syntax
+
 
 ## Format
     <location>/<device>/<sensor>/<metric>

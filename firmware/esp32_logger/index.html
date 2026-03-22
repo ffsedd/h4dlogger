@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html>
+<head>
+
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+
+body{
+  font-family:system-ui;
+  background:#0e0e0e;
+  color:#eee;
+  margin:16px;
+}
+
+h1{
+  margin-bottom:6px;
+  font-size:20px;
+}
+
+.grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+  gap:8px;
+}
+
+.card{
+  background:#1a1a1a;
+  padding:8px;
+  border-radius:8px;
+}
+
+canvas{
+  width:100%;
+}
+
+.stat{
+  font-size:16px;
+  margin-bottom:4px;
+}
+
+.sys{
+  margin-top:8px;
+  font-size:13px;
+  line-height:1.4;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<h1>ESP32 Kitchen Lab</h1>
+
+<div class="grid">
+
+<div class="card">
+<div class="stat" id="temp_val">-- °C</div>
+<canvas id="tempChart" height="180"></canvas>
+</div>
+
+<div class="card">
+<div class="stat" id="hum_val">-- %</div>
+<canvas id="humChart" height="180"></canvas>
+</div>
+
+<div class="card">
+<div class="stat" id="pres_val">-- hPa</div>
+<canvas id="presChart" height="180"></canvas>
+</div>
+
+<div class="card">
+<div class="stat" id="lux_val">-- lux</div>
+<canvas id="luxChart" height="180"></canvas>
+</div>
+
+<div class="card">
+<div class="stat">Temp grad: <span id="tgrad_val">--</span></div>
+<canvas id="tgradChart" height="180"></canvas>
+</div>
+
+<div class="card">
+<div class="stat">Hum grad: <span id="hgrad_val">--</span></div>
+<canvas id="hgradChart" height="180"></canvas>
+</div>
+
+</div>
+
+<div class="card sys">
+
+<b>System health</b><br>
+<div id="sys"></div>
+
+</div>
+
+<script>
+
+const tempEl=document.getElementById("temp_val")
+const humEl=document.getElementById("hum_val")
+const presEl=document.getElementById("pres_val")
+const luxEl=document.getElementById("lux_val")
+const tgradEl=document.getElementById("tgrad_val")
+const hgradEl=document.getElementById("hgrad_val")
+const sysEl=document.getElementById("sys")
+
+const MAX_POINTS=180
+
+function chart(id,color){
+
+return new Chart(
+document.getElementById(id),
+{
+type:"line",
+data:{
+labels:[],
+datasets:[{
+data:[],
+borderColor:color,
+borderWidth:1.5,
+pointRadius:0,
+tension:0.15
+}]
+},
+options:{
+responsive:false,
+animation:false,
+plugins:{legend:{display:false}},
+scales:{
+x:{display:false},
+y:{display:true}
+}
+}
+})
+}
+
+const tempChart=chart("tempChart","#ff5c5c")
+const humChart=chart("humChart","#5cc8ff")
+const presChart=chart("presChart","#ffc857")
+const luxChart=chart("luxChart","#9cff57")
+const tgradChart=chart("tgradChart","#ff9966")
+const hgradChart=chart("hgradChart","#66ccff")
+
+function push(chart,v){
+
+const d=chart.data.datasets[0].data
+const l=chart.data.labels
+
+d.push(v)
+l.push("")
+
+if(d.length>MAX_POINTS){
+d.shift()
+l.shift()
+}
+
+chart.update("none")
+}
+
+async function update(){
+
+const r=await fetch("/data")
+const j=await r.json()
+
+tempEl.innerText=j.temp.toFixed(2)+" C"
+humEl.innerText=j.hum.toFixed(2)+" %"
+presEl.innerText=j.pres.toFixed(1)+" hPa"
+luxEl.innerText=j.lux.toFixed(0)+" lx"
+
+tgradEl.innerText=j.temp_grad.toFixed(3)
+hgradEl.innerText=j.hum_grad.toFixed(3)
+
+push(tempChart,j.temp)
+push(humChart,j.hum)
+push(presChart,j.pres)
+push(luxChart,j.lux)
+push(tgradChart,j.temp_grad)
+push(hgradChart,j.hum_grad)
+
+sysEl.innerHTML =
+"WiFi RSSI: "+j.wifi_rssi+" dBm<br>"+
+"Heap: "+j.heap+" B<br>"+
+"Min heap: "+j.heap_min+" B<br>"+
+"Uptime: "+j.uptime+" s<br>"+
+"MQTT: "+j.mqtt
+
+}
+
+setInterval(update,2000)
+
+</script>
+
+</body>
+</html>
