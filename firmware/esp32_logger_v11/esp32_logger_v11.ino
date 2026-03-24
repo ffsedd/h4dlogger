@@ -36,6 +36,16 @@
 #define NTP_SERVER "pool.ntp.org"
 #define TZ_INFO "CET-1CEST,M3.5.0,M10.5.0/3"
 
+// ---------- LED output PINS - PWM ----------
+
+constexpr uint8_t PIN_G = 14;
+constexpr uint8_t PIN_Y = 13;
+constexpr uint8_t PIN_R = 27;
+
+
+constexpr uint32_t PWM_FREQ = 5000;
+constexpr uint8_t PWM_RES = 8; // 0–255
+
 ////////////////////////////////////////////////////////////
 // GLOBALS
 ////////////////////////////////////////////////////////////
@@ -61,7 +71,7 @@ float co2 = NAN;
 float co2Smooth = NAN;
 float co2Prev = NAN;
 float co2Grad = 0;
-
+float g_co2 = NAN;   
 
 // Agregation
 uint32_t lastSample=0;
@@ -83,7 +93,13 @@ void setupWDT() {
 }
 
 
+enum LedState {
+  LED_LOW,
+  LED_MID,
+  LED_HIGH
+};
 
+LedState co2LedState = LED_LOW;
 
 ////////////////////////////////////////////////////////////
 // SENSOR STATE
@@ -452,7 +468,7 @@ void readSensors(){
   }
 
   if(bmpStat.initialized){
-    pres=bmp.readPressure()/100.0;
+    pres=bmp.readPressure()/100.0; // hPa
     presAgg.add(pres);
   }
 
@@ -487,6 +503,9 @@ if (scdStat.initialized) {
       }
 
       co2Prev = co2Smooth;
+
+      // SINGLE SOURCE OF TRUTH used in LED 
+      g_co2 = co2;
     }
   }
 }
@@ -496,21 +515,110 @@ if (scdStat.initialized) {
   
 }
 
+
+////////////////////////////////////////////////////////////
+// LED OUTPUT
+////////////////////////////////////////////////////////////
+
+
+void updateLED() {
+  if (isnan(g_co2)) return;
+  static uint32_t lastUpdate = 0;
+  static uint32_t lastBlink = 0;
+  static bool blink = false;
+
+  const uint32_t now = millis();
+
+  uint8_t g = 0, y = 0, r = 0;
+
+  float co2 = g_co2;
+
+  // ---------- CRITICAL: fast blink (>1600) ----------
+  if (co2 > 1600) {
+    if (now - lastBlink >= 200) {   // 5 Hz
+      lastBlink = now;
+      blink = !blink;
+          Serial.printf("[LED] CO2=%.1f G=%u Y=%u R=%u\n", co2, g, y, r);
+    }
+
+    r = blink ? 255 : 0;
+
+    ledcWrite(PIN_G, 0);
+    ledcWrite(PIN_Y, 0);
+    ledcWrite(PIN_R, r);
+    return;
+  }
+
+  // ---------- WARNING: slow blink (>1400) ----------
+  if (co2 > 1400) {
+    if (now - lastBlink >= 500) {   // 2 Hz
+      lastBlink = now;
+      blink = !blink;
+          Serial.printf("[LED] CO2=%.1f G=%u Y=%u R=%u\n", co2, g, y, r);
+    }
+
+    r = blink ? 255 : 0;
+
+    ledcWrite(PIN_G, 0);
+    ledcWrite(PIN_Y, 0);
+    ledcWrite(PIN_R, r);
+    return;
+  }
+
+  // ---------- NORMAL: continuous mixing ----------
+  if (now - lastUpdate < SAMPLE_INTERVAL) return; // updated at SAMPLE_INTERVAL
+
+  lastUpdate = now;
+  if (co2 < 600) {
+    g = 255;
+  }
+  else if (co2 < 800) {
+    float t = (co2 - 600.0f) / 200.0f;
+    g = (uint8_t)((1.0f - t) * 255);
+    y = (uint8_t)(t * 255);
+  }
+  else if (co2 < 1000) {
+    y = 255;
+  }
+  else if (co2 < 1200) {
+    float t = (co2 - 1000.0f) / 200.0f;
+    y = (uint8_t)((1.0f - t) * 255);
+    r = (uint8_t)(t * 255);
+  }
+  else {
+    r = 255;
+  }
+
+  ledcWrite(PIN_G, g);
+  ledcWrite(PIN_Y, y);
+  ledcWrite(PIN_R, r);
+
+  // --- rate-limited logging ---
+  static uint32_t lastLog = 0;
+  if (now - lastLog > 1000) {
+    lastLog = now;
+    Serial.printf("[LED] CO2=%.1f G=%u Y=%u R=%u\n", co2, g, y, r);
+  }
+}
 ////////////////////////////////////////////////////////////
 // PUBLISH AGG
 ////////////////////////////////////////////////////////////
 
 void publishAgg(){
 
+  // send 5min mean values to mqtt
+
   if(!mqtt.connected()) return;
 
   if(tempAgg.count){
+    // mqttSend("sht40","temp",temp);
     mqttSend("sht40","temp_mean",tempAgg.mean());
     mqttSend("sht40","temp_min",tempAgg.min);
     mqttSend("sht40","temp_max",tempAgg.max);
   }
 
   if(humAgg.count){
+    // mqttSend("sht40","rh",hum);
     mqttSend("sht40","rh_mean",humAgg.mean());
     mqttSend("sht40","rh_min",humAgg.min);
     mqttSend("sht40","rh_max",humAgg.max);
@@ -518,8 +626,10 @@ void publishAgg(){
 
   if(presAgg.count)
     mqttSend("bmp280","pressure_mean",presAgg.mean());
+    // mqttSend("bmp280","pressure",pres);
 
   if(luxAgg.count)
+    // mqttSend("tsl2591","lux",lux);
     mqttSend("tsl2591","lux_mean",luxAgg.mean());
 
   mqttSend("sht40","temp_grad",tempGrad,false);
@@ -530,7 +640,7 @@ void publishAgg(){
   mqttSend("system","heap_min",ESP.getMinFreeHeap());
   mqttSend("system","uptime",millis()/1000);
   
-  mqttSend("scd40", "co2", co2);
+  // mqttSend("scd40", "co2", co2);
 mqttSend("scd40", "co2_smooth", co2Smooth);
 mqttSend("scd40", "co2_grad", co2Grad, false);
 
@@ -831,6 +941,14 @@ setupWDT();
   Wire.begin(I2C_SDA,I2C_SCL);
   Wire.setTimeOut(50);
 
+// LED output PWM
+ledcAttach(PIN_G, PWM_FREQ, PWM_RES);
+ledcAttach(PIN_Y, PWM_FREQ, PWM_RES);
+ledcAttach(PIN_R, PWM_FREQ, PWM_RES);
+ledcAttachChannel(PIN_G, PWM_FREQ, PWM_RES, 0);
+ledcAttachChannel(PIN_Y, PWM_FREQ, PWM_RES, 1);
+ledcAttachChannel(PIN_R, PWM_FREQ, PWM_RES, 2);
+
   connectWiFi();
   setupTime();
 
@@ -850,11 +968,9 @@ setupWDT();
 // LOOP
 ////////////////////////////////////////////////////////////
 
-void loop(){
 
- 
+void loop() {
   esp_task_wdt_reset();   
-
   wifiWatchdog();
 
   connectWiFi();
@@ -863,15 +979,22 @@ void loop(){
   mqtt.loop();
   ArduinoOTA.handle();
 
-  uint32_t now=millis();
+  uint32_t now = millis();
 
-  if(now-lastSample>SAMPLE_INTERVAL){
-    lastSample=now;
-    readSensors();
+  // --- SENSOR UPDATE (slow) ---
+  if (now - lastSample > SAMPLE_INTERVAL) {
+    lastSample = now;
+    readSensors();        // must update g_co2
   }
 
-  if(now-lastAgg>AGG_INTERVAL){
-    lastAgg=now;
+  // --- AGG ---
+  if (now - lastAgg > AGG_INTERVAL) {
+    lastAgg = now;
     publishAgg();
   }
+
+  // --- LED RENDER (fast, every loop) ---
+  updateLED();   // <- key change
+
+  ets_delay_us(1000);  // 1 ms microsleep to lower load
 }
