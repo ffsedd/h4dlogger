@@ -25,9 +25,6 @@
 #define MQTT_BASE MQTT_CLIENT_TYPE "/" MQTT_CLIENT_ID
 #define TOPIC_STATUS MQTT_BASE "/status"
 
-#define SAMPLE_INTERVAL 5000
-#define AGG_INTERVAL 300000
-
 #define I2C_SDA 21
 #define I2C_SCL 22
 
@@ -36,19 +33,78 @@
 #define NTP_SERVER "pool.ntp.org"
 #define TZ_INFO "CET-1CEST,M3.5.0,M10.5.0/3"
 
-// ---------- LED output PINS - PWM ----------
+// ================= CONFIG =================
 
-constexpr uint8_t PIN_G = 14;
-constexpr uint8_t PIN_Y = 13;
-constexpr uint8_t PIN_R = 27;
+#define SAMPLE_INTERVAL 500      // 0.5 s sampling
+#define AGG_INTERVAL 300000       // 5 min aggregation
+#define FILTER_N 5                // 5 s running mean
+#define SERIAL_PRINT_VALUES 0
 
+// ================= RUNNING MEAN =================
+template<int N>
+struct RunningMean {
+  float buf[N] = {0};
+  int idx = 0;
+  int count = 0;
+  float sum = 0;
 
-constexpr uint32_t PWM_FREQ = 5000;
-constexpr uint8_t PWM_RES = 8; // 0–255
+  float add(float v) {
+    if (count < N) {
+      buf[idx] = v;
+      sum += v;
+      count++;
+    } else {
+      sum -= buf[idx];
+      buf[idx] = v;
+      sum += v;
+    }
 
+    idx = (idx + 1) % N;
+    return sum / count;
+  }
+};
 ////////////////////////////////////////////////////////////
 // GLOBALS
 ////////////////////////////////////////////////////////////
+
+// ================= FILTERS =================
+
+RunningMean<FILTER_N> tempF;
+RunningMean<FILTER_N> humF;
+RunningMean<FILTER_N> luxF;
+
+// ================= PRIMARY VALUES =================
+
+float temp = NAN;
+float hum  = NAN;
+float pres = NAN;
+float lux  = NAN;
+
+// ================= FILTERED VALUES =================
+
+float tempSmooth = NAN;
+float humSmooth  = NAN;
+float luxSmooth  = NAN;
+
+// ================= DERIVATIVES =================
+
+float tempPrev = NAN;
+float humPrev  = NAN;
+float co2Prev  = NAN;
+
+float tempGrad = 0;
+float humGrad  = 0;
+float co2Grad  = 0;
+
+// ================= CO2 (sensor-limited) =================
+
+float co2 = NAN;
+float co2Smooth = NAN;
+
+// unified control signal (LED etc.)
+float g_co2 = NAN;
+
+// ================= HW / NETWORK =================
 
 AsyncWebServer server(80);
 
@@ -58,28 +114,22 @@ PubSubClient mqtt(wifiClient);
 Adafruit_SHT4x sht4;
 Adafruit_BMP280 bmp;
 Adafruit_TSL2591 tsl = Adafruit_TSL2591(2591);
-
-float temp=0;
-float hum=0;
-float pres=0;
-float lux=0;
-
-// SDC40
 SCD4x scd4;
 
-float co2 = NAN;
-float co2Smooth = NAN;
-float co2Prev = NAN;
-float co2Grad = 0;
-float g_co2 = NAN;   
+// ================= TIMING =================
 
-// Agregation
-uint32_t lastSample=0;
-uint32_t lastAgg=0;
-uint32_t lastTry = 0;
+uint32_t lastSample = 0;
+uint32_t lastAgg    = 0;
+uint32_t lastTry    = 0;
 
+// ================= LED =================
 
+constexpr uint8_t PIN_G = 14;
+constexpr uint8_t PIN_Y = 13;
+constexpr uint8_t PIN_R = 27;
 
+constexpr uint32_t PWM_FREQ = 1000;
+constexpr uint8_t PWM_RES   = 8;
 
 void setupWDT() {
   esp_task_wdt_config_t cfg = {
@@ -115,6 +165,47 @@ SensorStatus tslStat;
 SensorStatus scdStat;
 
 bool i2cDevices[128]={false};
+
+
+
+
+////////////////////////////////////////////////////////////
+// AGGREGATION
+////////////////////////////////////////////////////////////
+
+struct AggMean{
+  float sum=0;
+  uint32_t count=0;
+  void add(float v){ sum+=v; count++; }
+  float mean() const{ return count?sum/count:NAN; }
+  void reset(){ sum=0; count=0; }
+};
+
+struct AggMinMax{
+  float sum=0;
+  float min=100000;
+  float max=-100000;
+  uint32_t count=0;
+
+  void add(float v){
+    sum+=v; count++;
+    if(v<min) min=v;
+    if(v>max) max=v;
+  }
+
+  float mean() const{ return count?sum/count:NAN; }
+
+  void reset(){
+    sum=0; min=100000; max=-100000; count=0;
+  }
+};
+
+AggMinMax tempAgg;
+AggMinMax humAgg;
+AggMean presAgg;
+AggMean luxAgg;
+
+
 
 ////////////////////////////////////////////////////////////
 // I2C SCAN
@@ -171,12 +262,18 @@ void detectSensors(){
   }
 
   // BMP
-  bmpStat.present = i2cDevices[0x76] || i2cDevices[0x77];
-  if(bmpStat.present){
-    Serial.print("[BMP280] init... ");
-    bmpStat.initialized = bmp.begin(0x76) || bmp.begin(0x77);
-    Serial.println(bmpStat.initialized?"OK":"FAIL");
-  }
+uint8_t bmpAddr = 0;
+
+if (i2cDevices[0x76]) bmpAddr = 0x76;
+else if (i2cDevices[0x77]) bmpAddr = 0x77;
+
+bmpStat.present = bmpAddr != 0;
+
+if (bmpStat.present) {
+  Serial.print("[BMP280] init... ");
+  bmpStat.initialized = bmp.begin(bmpAddr);
+  Serial.println(bmpStat.initialized ? "OK" : "FAIL");
+}
 
   // TSL
   tslStat.present = i2cDevices[0x29];
@@ -212,6 +309,97 @@ void detectSensors(){
 
   Serial.println();
 }
+
+
+// ================= SENSOR READ =================
+
+void readSensors() {
+
+  const float dt = SAMPLE_INTERVAL / 1000.0;
+
+  // ---- SHT ----
+  if (shtStat.initialized) {
+    sensors_event_t h, t;
+
+    if (sht4.getEvent(&h, &t)) {
+
+      temp = t.temperature;
+      hum  = h.relative_humidity;
+
+      tempSmooth = tempF.add(temp);
+      humSmooth  = humF.add(hum);
+
+      if (!isnan(tempPrev))
+        tempGrad = (tempSmooth - tempPrev) / dt;
+
+      if (!isnan(humPrev))
+        humGrad = (humSmooth - humPrev) / dt;
+
+      tempPrev = tempSmooth;
+      humPrev  = humSmooth;
+
+      // aggregation uses filtered values
+      tempAgg.add(tempSmooth);
+      humAgg.add(humSmooth);
+    }
+  }
+
+  // ---- BMP ----
+  if (bmpStat.initialized) {
+    pres = bmp.readPressure() / 100.0;
+    presAgg.add(pres);
+  }
+
+  // ---- TSL ----
+  if (tslStat.initialized) {
+    sensors_event_t light;
+    tsl.getEvent(&light);
+
+    if (!isnan(light.light) && light.light > 0 && light.light < 200000) {
+      lux = light.light;
+      luxSmooth = luxF.add(lux);
+      luxAgg.add(luxSmooth);
+    }
+  }
+
+  // ---- SCD4x (true ~5 s updates) ----
+  if (scdStat.initialized) {
+
+static uint32_t co2LastTs = 0;
+
+if (scd4.readMeasurement()) {
+
+  uint32_t now = millis();
+
+  float newCO2 = scd4.getCO2();
+
+  if (newCO2 > 0 && newCO2 < 10000) {
+
+    co2 = newCO2;
+
+    if (isnan(co2Smooth))
+      co2Smooth = co2;
+    else
+      co2Smooth = 0.3f * co2 + 0.7f * co2Smooth;
+
+    if (!isnan(co2Prev) && co2LastTs > 0) {
+      float dt_real = (now - co2LastTs) / 1000.0f;
+      if (dt_real > 0.1f)  // guard
+        co2Grad = (co2Smooth - co2Prev) / dt_real;
+    }
+
+    co2Prev = co2Smooth;
+    co2LastTs = now;
+  }
+}
+  }
+
+  // unified control signal
+  g_co2 = co2Smooth;
+}
+
+
+
 
 ////////////////////////////////////////////////////////////
 // SYSTEM INFO
@@ -250,55 +438,6 @@ void printSystemInfo(){
 
   Serial.println("============================\n");
 }
-
-////////////////////////////////////////////////////////////
-// SMOOTHING + GRADIENT
-////////////////////////////////////////////////////////////
-
-#define EWMA_ALPHA 0.12
-
-float tempSmooth=NAN;
-float humSmooth=NAN;
-float tempPrev=NAN;
-float humPrev=NAN;
-float tempGrad=0;
-float humGrad=0;
-
-////////////////////////////////////////////////////////////
-// AGGREGATION
-////////////////////////////////////////////////////////////
-
-struct AggMean{
-  float sum=0;
-  uint32_t count=0;
-  void add(float v){ sum+=v; count++; }
-  float mean() const{ return count?sum/count:NAN; }
-  void reset(){ sum=0; count=0; }
-};
-
-struct AggMinMax{
-  float sum=0;
-  float min=100000;
-  float max=-100000;
-  uint32_t count=0;
-
-  void add(float v){
-    sum+=v; count++;
-    if(v<min) min=v;
-    if(v>max) max=v;
-  }
-
-  float mean() const{ return count?sum/count:NAN; }
-
-  void reset(){
-    sum=0; min=100000; max=-100000; count=0;
-  }
-};
-
-AggMinMax tempAgg;
-AggMinMax humAgg;
-AggMean presAgg;
-AggMean luxAgg;
 
 ////////////////////////////////////////////////////////////
 // WIFI WATCHDOG
@@ -425,96 +564,6 @@ void mqttSend(const char *sensor,const char *metric,float value,bool retained=tr
   mqtt.publish(topic,payload,retained);
 }
 
-////////////////////////////////////////////////////////////
-// SENSOR READ
-////////////////////////////////////////////////////////////
-
-void readSensors(){
-
-  if(shtStat.initialized){
-
-    sensors_event_t h,t;
-
-    if(sht4.getEvent(&h,&t)){
-
-      temp=t.temperature;
-      hum=h.relative_humidity;
-
-      tempAgg.add(temp);
-      humAgg.add(hum);
-
-      if(isnan(tempSmooth)){
-        tempSmooth=temp;
-        humSmooth=hum;
-      }else{
-        tempSmooth=EWMA_ALPHA*temp+(1-EWMA_ALPHA)*tempSmooth;
-        humSmooth =EWMA_ALPHA*hum +(1-EWMA_ALPHA)*humSmooth;
-      }
-
-      if(!isnan(tempPrev))
-        tempGrad = 1000.0 * (tempSmooth - tempPrev) / SAMPLE_INTERVAL;
-
-      if(!isnan(humPrev))
-        humGrad=1000.0 * (humSmooth-humPrev) / SAMPLE_INTERVAL;
-
-
-      tempPrev=tempSmooth;
-      humPrev=humSmooth;
-    }
-    
-    
-    
-    
-  }
-
-  if(bmpStat.initialized){
-    pres=bmp.readPressure()/100.0; // hPa
-    presAgg.add(pres);
-  }
-
-  if(tslStat.initialized){
-
-    sensors_event_t light;
-    tsl.getEvent(&light);
-
-    if(!isnan(light.light) && light.light>0 && light.light<200000){
-      lux=light.light;
-      luxAgg.add(lux);
-    }
-  }
-  
-if (scdStat.initialized) {
-
-  if (scd4.readMeasurement()) {
-
-    co2 = scd4.getCO2();
-
-    if (co2 > 0 && co2 < 10000) {
-
-      if (isnan(co2Smooth)) {
-        co2Smooth = co2;
-      } else {
-        co2Smooth = EWMA_ALPHA * co2 +
-                    (1 - EWMA_ALPHA) * co2Smooth;
-      }
-
-      if (!isnan(co2Prev)) {
-        co2Grad = (co2Smooth - co2Prev) * 30.0;
-      }
-
-      co2Prev = co2Smooth;
-
-      // SINGLE SOURCE OF TRUTH used in LED 
-      g_co2 = co2;
-    }
-  }
-}
-
-  
-  
-  
-}
-
 
 ////////////////////////////////////////////////////////////
 // LED OUTPUT
@@ -593,12 +642,14 @@ void updateLED() {
   ledcWrite(PIN_Y, y);
   ledcWrite(PIN_R, r);
 
-  // --- rate-limited logging ---
+  //~ // --- rate-limited logging ---
+  if (SERIAL_PRINT_VALUES) {
   static uint32_t lastLog = 0;
   if (now - lastLog > 1000) {
     lastLog = now;
     Serial.printf("[LED] CO2=%.1f G=%u Y=%u R=%u\n", co2, g, y, r);
   }
+}
 }
 ////////////////////////////////////////////////////////////
 // PUBLISH AGG
@@ -982,10 +1033,10 @@ void loop() {
   uint32_t now = millis();
 
   // --- SENSOR UPDATE (slow) ---
-  if (now - lastSample > SAMPLE_INTERVAL) {
-    lastSample = now;
-    readSensors();        // must update g_co2
-  }
+ while (millis() - lastSample >= SAMPLE_INTERVAL) {
+    lastSample += SAMPLE_INTERVAL;
+    readSensors();
+}
 
   // --- AGG ---
   if (now - lastAgg > AGG_INTERVAL) {
