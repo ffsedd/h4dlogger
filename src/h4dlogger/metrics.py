@@ -3,6 +3,11 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+
+pd.set_option('display.max_rows', 500)
+pd.set_option('display.max_columns', 500)
+pd.set_option('display.width', 1000)
+
 def dew_point(temp: pd.Series, rh: pd.Series) -> pd.Series:
     a = 17.62
     b = 243.12
@@ -43,5 +48,7 @@ def add_metrics(df: pd.DataFrame) -> pd.DataFrame:
     print (f"DataFrame now has columns: {df.columns.tolist()}")
     print(f"DataFrame shape after adding metrics: {df.shape}")
     preview_cols = temp_cols + rh_cols + co2_cols
-    print(f"Sample data after adding metrics:\n{df[preview_cols].tail(10)}")
+    print(f"Sample data after adding metrics:\n{df[preview_cols].tail(100)}")
+    print(f"Sample stats:\n{df[preview_cols].describe()}")
+
     return df
