@@ -1,32 +1,68 @@
 #!/bin/sh
 # /mnt/data/mqtt_web.sh
-# CGI script to show latest readings
+# Show latest MQTT readings (CGI)
 
 LOGDIR="/mnt/data/logs"
+TODAY=$(date +%Y-%m-%d)
 
-# Print HTTP header
-echo "Content-type: text/html"
-echo ""
+# ---------------- HTTP header ----------------
+printf "Content-type: text/html\n\n"
 
-# HTML header
-echo "<html><head><title>Sensor Readings</title>"
-echo "<meta http-equiv='refresh' content='5'>"
-echo "<style>table{border-collapse:collapse}td,th{border:1px solid black;padding:4px}</style>"
-echo "</head><body>"
-echo "<h2>Latest Sensor Readings</h2>"
-echo "<table><tr><th>Room</th><th>Sensor</th><th>Metric</th><th>Value</th><th>Time</th></tr>"
+cat <<EOF
+<html>
+<head>
+<title>Sensor Readings</title>
+<meta http-equiv="refresh" content="5">
+<style>
+body{font-family:sans-serif}
+table{border-collapse:collapse}
+td,th{border:1px solid #444;padding:4px}
+th{background:#eee}
+</style>
+</head>
+<body>
+<h2>Latest Sensor Readings</h2>
+<table>
+<tr>
+<th>Room</th>
+<th>Sensor</th>
+<th>Metric</th>
+<th>Value</th>
+<th>Time</th>
+</tr>
+EOF
 
-# Loop through room logs
-for LOG in "$LOGDIR"/*_$(date +%Y-%m-%d).log; do
-    [ -f "$LOG" ] || continue
-    ROOM=$(basename "$LOG" | cut -d_ -f1)
-    # Read latest line per topic
-    awk '{data[$2]=$0} END{for(t in data) print data[t]}' "$LOG" | while read -r TS TOPIC VALUE; do
-        SENSOR=$(echo "$TOPIC" | cut -d/ -f2)
-        METRIC=$(echo "$TOPIC" | cut -d/ -f3)
-        TIME=$(date -d "@$TS" "+%Y-%m-%d %H:%M:%S" 2>/dev/null || date -r $TS "+%Y-%m-%d %H:%M:%S")
-        echo "<tr><td>$ROOM</td><td>$SENSOR</td><td>$METRIC</td><td>$VALUE</td><td>$TIME</td></tr>"
-    done
+# ---------------- collect newest values ----------------
+awk -F',' -v today="$TODAY" '
+
+# keep only newest record per location/sensor/metric
+{
+    key = $2 "|" $3 "|" $4
+    data[key] = $0
+}
+
+END {
+    for (k in data)
+        print data[k]
+}
+
+' "$LOGDIR"/*_"$TODAY".log 2>/dev/null |
+while IFS=',' read -r TS LOCATION SENSOR METRIC VALUE
+do
+    # portable timestamp conversion (busybox + GNU)
+    TIME=$(date -d "@$TS" "+%F %T" 2>/dev/null || date -r "$TS" "+%F %T")
+
+    printf "<tr>"
+    printf "<td>%s</td>" "$LOCATION"
+    printf "<td>%s</td>" "$SENSOR"
+    printf "<td>%s</td>" "$METRIC"
+    printf "<td>%s</td>" "$VALUE"
+    printf "<td>%s</td>" "$TIME"
+    printf "</tr>\n"
 done
 
-echo "</table></body></html>"
+cat <<EOF
+</table>
+</body>
+</html>
+EOF
