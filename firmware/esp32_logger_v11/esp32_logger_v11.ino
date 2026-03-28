@@ -1064,9 +1064,9 @@ const humChart=chart("humChart","#0099ff",20,80)
 const presChart=chart("presChart","#ffc857",900,1100)
 const luxChart=chart("luxChart","#ffffff",0,500)  
 const co2Chart=chart("co2Chart","#0dff00",400,1600)
-const co2gradChart = chart("co2gradChart", "#aaffaa", -8., 8.);
-const tgradChart=chart("tgradChart","#ffaaaa",-.1,.1)
-const hgradChart=chart("hgradChart","#00eeff",-.5,.5)
+const co2gradChart = chart("co2gradChart", "#aaffaa", -4., 4.);
+const tgradChart=chart("tgradChart","#ffaaaa",-.02,.02)
+const hgradChart=chart("hgradChart","#00eeff",-.1,.1)
 
 
 async function update(){
