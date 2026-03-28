@@ -1181,8 +1181,8 @@ const humChart=chart("humChart","#0099ff",20,80)
 const presChart=chart("presChart","#ffc857",900,1100)
 const luxChart=chart("luxChart","#ffffff",0,500)  
 const co2Chart=chart("co2Chart","#0dff00",400,1600)
-const co2gradChart = chart("co2gradChart", "#aaffaa", -100, 100);
-const tgradChart=chart("tgradChart","#ffaaaa",-50,50)
+const co2gradChart = chart("co2gradChart", "#aaffaa", -200, 100);
+const tgradChart=chart("tgradChart","#ffaaaa",-5,5)
 const hgradChart=chart("hgradChart","#00eeff",-10,10)
 
 
