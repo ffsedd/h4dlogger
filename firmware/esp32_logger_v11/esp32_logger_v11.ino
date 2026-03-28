@@ -341,141 +341,183 @@ void detectSensors()
 
   Serial.println();
 }
+////////////////////////////////////////////////////////////
+// FILTER CORE
+////////////////////////////////////////////////////////////
 
-// ================= SENSOR READ =================
-// ================= EMA =================
 struct EMA
 {
-  float alpha;
+  float tau; // time constant [s]
   float value;
-  EMA(float a) : alpha(a), value(NAN) {}
-  float update(float v)
+
+  EMA(float tau_sec) : tau(tau_sec), value(NAN) {}
+
+  float update(float v, float dt)
   {
+    const float a = dt / (tau + dt);
+
     if (isnan(value))
       value = v;
     else
-      value = alpha * v + (1 - alpha) * value;
+      value += a * (v - value);
+
     return value;
   }
 };
 
-// ================= EMA INSTANCES =================
-EMA tempEMA(0.3f);
-EMA humEMA(0.3f);
-EMA luxEMA(0.2f);
-EMA co2EMA(0.3f);
+// ---------- history helper ----------
+inline void push3(float *h, float v)
+{
+  h[0] = h[1];
+  h[1] = h[2];
+  h[2] = v;
+}
 
-// ================= READ FAST SENSORS =================
+////////////////////////////////////////////////////////////
+// FILTER INSTANCES
+////////////////////////////////////////////////////////////
+
+// signal smoothing
+EMA tempLPF(10.0f);
+EMA humLPF(10.0f);
+EMA luxLPF(5.0f);
+EMA co2LPF(20.0f);
+
+// gradient smoothing
+EMA tempGradLPF(120.0f);
+EMA humGradLPF(120.0f);
+EMA co2GradLPF(180.0f);
+
+// derivative history buffers
+float tempHist[3] = {NAN, NAN, NAN};
+float humHist[3] = {NAN, NAN, NAN};
+float co2Hist[3] = {NAN, NAN, NAN};
+
+////////////////////////////////////////////////////////////
+// FAST SENSORS
+////////////////////////////////////////////////////////////
+
 void readFastSensors()
 {
-  const float dt = SAMPLE_INTERVAL / 1000.0;
-  const float alphaGrad = 0.3f;
+  const float dt = SAMPLE_INTERVAL / 1000.0f;
 
-  // ---- SHT ----
+  // ---------- SHT4x ----------
   if (shtStat.initialized)
   {
     sensors_event_t h, t;
+
     if (sht4.getEvent(&h, &t))
     {
       temp = t.temperature;
       hum = h.relative_humidity;
 
-      tempSmooth = tempF.add(temp);
-      humSmooth = humF.add(hum);
+      tempSmooth = tempLPF.update(temp, dt);
+      humSmooth = humLPF.update(hum, dt);
 
-      float tempE = tempEMA.update(tempSmooth);
-      float humE = humEMA.update(humSmooth);
+      push3(tempHist, tempSmooth);
+      push3(humHist, humSmooth);
 
-      if (!isnan(tempPrev))
+      // central derivative (low noise)
+      if (!isnan(tempHist[0]))
       {
-        float rawGrad = (tempE - tempPrev) / dt;
-        tempGrad = isnan(tempGrad) ? rawGrad : alphaGrad * rawGrad + (1 - alphaGrad) * tempGrad;
-      }
-      if (!isnan(humPrev))
-      {
-        float rawGrad = (humE - humPrev) / dt;
-        humGrad = isnan(humGrad) ? rawGrad : alphaGrad * rawGrad + (1 - alphaGrad) * humGrad;
+        float g = (tempHist[2] - tempHist[0]) / (2.0f * dt);
+        tempGrad = tempGradLPF.update(g, dt);
       }
 
-      tempPrev = tempE;
-      humPrev = humE;
+      if (!isnan(humHist[0]))
+      {
+        float g = (humHist[2] - humHist[0]) / (2.0f * dt);
+        humGrad = humGradLPF.update(g, dt);
+      }
 
-      tempAgg.add(tempE);
-      humAgg.add(humE);
+      tempAgg.add(tempSmooth);
+      humAgg.add(humSmooth);
     }
   }
 
-  // ---- BMP ----
+  // ---------- BMP280 ----------
   if (bmpStat.initialized)
   {
-    pres = bmp.readPressure() / 100.0;
+    pres = bmp.readPressure() / 100.0f;
     presAgg.add(pres);
   }
 
-  // ---- TSL ----
+  // ---------- TSL2591 ----------
   if (tslStat.initialized)
   {
     sensors_event_t light;
     tsl.getEvent(&light);
-    if (!isnan(light.light) && light.light > 0 && light.light < 200000)
+
+    if (!isnan(light.light) &&
+        light.light > 0 &&
+        light.light < 200000)
     {
-      lux = light.light;
-      luxSmooth = luxF.add(lux);
-      luxEMA.update(luxSmooth);
-      luxAgg.add(luxSmooth);
+      lux = luxLPF.update(light.light, dt);
+      luxAgg.add(lux);
     }
   }
 }
 
-// ================= READ SLOW SENSOR (SCD4x CO2) =================
+////////////////////////////////////////////////////////////
+// SCD40 CO2 SENSOR
+////////////////////////////////////////////////////////////
+
 void readSCD40()
 {
-  static uint32_t lastSampleSCD = 0;
+  static uint32_t lastSample = 0;
+  static uint32_t lastTs = 0;
+
   uint32_t now = millis();
-  const float alphaGrad = 0.3f;
 
   if (!scdStat.initialized)
     return;
-  if (now - lastSampleSCD < SAMPLE_INTERVAL_SCD40)
+
+  if (now - lastSample < SAMPLE_INTERVAL_SCD40)
     return;
 
-  lastSampleSCD = now;
+  lastSample = now;
 
   if (!scd4.readMeasurement())
     return;
 
   float newCO2 = scd4.getCO2();
-  if (newCO2 <= 0 || newCO2 >= 10000)
+
+  if (newCO2 <= 0 || newCO2 > 10000)
     return;
 
+  float dt =
+      (lastTs == 0)
+          ? SAMPLE_INTERVAL_SCD40 / 1000.0f
+          : (now - lastTs) / 1000.0f;
+
+  lastTs = now;
+
   co2 = newCO2;
-  co2Smooth = co2EMA.update(co2);
 
-  static float co2PrevLocal = NAN;
-  static uint32_t co2LastTs = 0;
+  co2Smooth = co2LPF.update(co2, dt);
 
-  if (!isnan(co2PrevLocal) && co2LastTs > 0)
+  push3(co2Hist, co2Smooth);
+
+  // central derivative
+  if (!isnan(co2Hist[0]))
   {
-    float dt_real = (now - co2LastTs) / 1000.0f;
-    if (dt_real > 0.1f)
-    {
-      float rawGrad = (co2Smooth - co2PrevLocal) / dt_real;
-      co2Grad = isnan(co2Grad) ? rawGrad : alphaGrad * rawGrad + (1 - alphaGrad) * co2Grad;
-    }
+    float g = (co2Hist[2] - co2Hist[0]) / (2.0f * dt);
+    co2Grad = co2GradLPF.update(g, dt);
   }
-
-  co2PrevLocal = co2Smooth;
-  co2LastTs = now;
 
   g_co2 = co2Smooth;
 }
 
-// ================= READ ALL =================
+////////////////////////////////////////////////////////////
+// READ ALL SENSORS
+////////////////////////////////////////////////////////////
+
 void readSensors()
 {
   readFastSensors();
   readSCD40();
 }
+
 ////////////////////////////////////////////////////////////
 // SYSTEM INFO
 ////////////////////////////////////////////////////////////
@@ -711,39 +753,39 @@ void updateLED()
 // --------------------------------------------------------
 void mqttSendCSV(
     unsigned long ts,
-    const char* sensor,
-    const char* metric,
+    const char *sensor,
+    const char *metric,
     float value,
     bool retained = false)
 {
-    if (!mqtt.connected())
-        return;
+  if (!mqtt.connected())
+    return;
 
-    char topic[96];
-    char payload[64];
+  char topic[96];
+  char payload[64];
 
-    // topic: kitchen/sht40/temp
-    snprintf(
-        topic,
-        sizeof(topic),
-        "%s/%s/%s",
-        MQTT_DEVICE_ID,
-        sensor,
-        metric);
+  // topic: kitchen/sht40/temp
+  snprintf(
+      topic,
+      sizeof(topic),
+      "%s/%s/%s",
+      MQTT_DEVICE_ID,
+      sensor,
+      metric);
 
-    // payload: 1774671828,22.341
-    snprintf(
-        payload,
-        sizeof(payload),
-        "%lu,%.3f",
-        ts,
-        value);
+  // payload: 1774671828,22.341
+  snprintf(
+      payload,
+      sizeof(payload),
+      "%lu,%.3f",
+      ts,
+      value);
 
-    mqtt.publish(
-        topic,
-        (uint8_t*)payload,
-        strlen(payload),
-        retained);
+  mqtt.publish(
+      topic,
+      (uint8_t *)payload,
+      strlen(payload),
+      retained);
 }
 
 ////////////////////////////////////////////////////////////
@@ -751,25 +793,25 @@ void mqttSendCSV(
 ////////////////////////////////////////////////////////////
 void mqttSendAll()
 {
-    unsigned long ts = time(nullptr);
+  unsigned long ts = time(nullptr);
 
-    // ---- SHT40 ----
-    mqttSendCSV(ts,"sht40","temp",temp);
-    mqttSendCSV(ts,"sht40","temp_smooth",tempSmooth);
-    mqttSendCSV(ts,"sht40","temp_grad",tempGrad);
+  // ---- SHT40 ----
+  mqttSendCSV(ts, "sht40", "temp", temp);
+  mqttSendCSV(ts, "sht40", "temp_smooth", tempSmooth);
+  mqttSendCSV(ts, "sht40", "temp_grad", tempGrad);
 
-    mqttSendCSV(ts,"sht40","hum",hum);
-    mqttSendCSV(ts,"sht40","hum_smooth",humSmooth);
-    mqttSendCSV(ts,"sht40","hum_grad",humGrad);
+  mqttSendCSV(ts, "sht40", "hum", hum);
+  mqttSendCSV(ts, "sht40", "hum_smooth", humSmooth);
+  mqttSendCSV(ts, "sht40", "hum_grad", humGrad);
 
-    // ---- CO2 ----
-    mqttSendCSV(ts,"scd40","co2",co2);
-    mqttSendCSV(ts,"scd40","co2_smooth",co2Smooth);
-    mqttSendCSV(ts,"scd40","co2_grad",co2Grad);
+  // ---- CO2 ----
+  mqttSendCSV(ts, "scd40", "co2", co2);
+  mqttSendCSV(ts, "scd40", "co2_smooth", co2Smooth);
+  mqttSendCSV(ts, "scd40", "co2_grad", co2Grad);
 
-    // ---- Environment ----
-    mqttSendCSV(ts,"bmp280","pressure",pres);
-    mqttSendCSV(ts,"tsl2591","lux",lux);
+  // ---- Environment ----
+  mqttSendCSV(ts, "bmp280", "pressure", pres);
+  mqttSendCSV(ts, "tsl2591", "lux", lux);
 }
 
 ////////////////////////////////////////////////////////////
@@ -777,57 +819,57 @@ void mqttSendAll()
 ////////////////////////////////////////////////////////////
 void publishAgg()
 {
-    if (!mqtt.connected())
-        return;
+  if (!mqtt.connected())
+    return;
 
-    time_t ts_center = time(nullptr);
+  time_t ts_center = time(nullptr);
 
-    if (lastAgg >= AGG_INTERVAL)
-        ts_center -= AGG_INTERVAL / 2000;
+  if (lastAgg >= AGG_INTERVAL)
+    ts_center -= AGG_INTERVAL / 2000;
 
-    // ---------- Temperature ----------
-    if (tempAgg.count)
-    {
-        mqttSendCSV(ts_center,"sht40","temp_mean",tempAgg.mean());
-        mqttSendCSV(ts_center,"sht40","temp_min",tempAgg.min);
-        mqttSendCSV(ts_center,"sht40","temp_max",tempAgg.max);
-    }
+  // ---------- Temperature ----------
+  if (tempAgg.count)
+  {
+    mqttSendCSV(ts_center, "sht40", "temp_mean", tempAgg.mean());
+    mqttSendCSV(ts_center, "sht40", "temp_min", tempAgg.min);
+    mqttSendCSV(ts_center, "sht40", "temp_max", tempAgg.max);
+  }
 
-    // ---------- Humidity ----------
-    if (humAgg.count)
-    {
-        mqttSendCSV(ts_center,"sht40","rh_mean",humAgg.mean());
-        mqttSendCSV(ts_center,"sht40","rh_min",humAgg.min);
-        mqttSendCSV(ts_center,"sht40","rh_max",humAgg.max);
-    }
+  // ---------- Humidity ----------
+  if (humAgg.count)
+  {
+    mqttSendCSV(ts_center, "sht40", "rh_mean", humAgg.mean());
+    mqttSendCSV(ts_center, "sht40", "rh_min", humAgg.min);
+    mqttSendCSV(ts_center, "sht40", "rh_max", humAgg.max);
+  }
 
-    // ---------- Pressure ----------
-    if (presAgg.count)
-        mqttSendCSV(ts_center,"bmp280","pressure_mean",presAgg.mean());
+  // ---------- Pressure ----------
+  if (presAgg.count)
+    mqttSendCSV(ts_center, "bmp280", "pressure_mean", presAgg.mean());
 
-    // ---------- Light ----------
-    if (luxAgg.count)
-        mqttSendCSV(ts_center,"tsl2591","lux_mean",luxAgg.mean());
+  // ---------- Light ----------
+  if (luxAgg.count)
+    mqttSendCSV(ts_center, "tsl2591", "lux_mean", luxAgg.mean());
 
-    // ---------- Gradients ----------
-    mqttSendCSV(ts_center,"sht40","temp_grad",tempGrad);
-    mqttSendCSV(ts_center,"sht40","rh_grad",humGrad);
+  // ---------- Gradients ----------
+  mqttSendCSV(ts_center, "sht40", "temp_grad", tempGrad);
+  mqttSendCSV(ts_center, "sht40", "rh_grad", humGrad);
 
-    // ---------- System ----------
-    mqttSendCSV(ts_center,"system","wifi_rssi",WiFi.RSSI());
-    mqttSendCSV(ts_center,"system","heap",ESP.getFreeHeap());
-    mqttSendCSV(ts_center,"system","heap_min",ESP.getMinFreeHeap());
-    mqttSendCSV(ts_center,"system","uptime",millis()/1000.0f);
+  // ---------- System ----------
+  mqttSendCSV(ts_center, "system", "wifi_rssi", WiFi.RSSI());
+  mqttSendCSV(ts_center, "system", "heap", ESP.getFreeHeap());
+  mqttSendCSV(ts_center, "system", "heap_min", ESP.getMinFreeHeap());
+  mqttSendCSV(ts_center, "system", "uptime", millis() / 1000.0f);
 
-    // ---------- CO2 ----------
-    mqttSendCSV(ts_center,"scd40","co2_smooth",co2Smooth);
-    mqttSendCSV(ts_center,"scd40","co2_grad",co2Grad);
+  // ---------- CO2 ----------
+  mqttSendCSV(ts_center, "scd40", "co2_smooth", co2Smooth);
+  mqttSendCSV(ts_center, "scd40", "co2_grad", co2Grad);
 
-    // reset aggregators
-    tempAgg.reset();
-    humAgg.reset();
-    presAgg.reset();
-    luxAgg.reset();
+  // reset aggregators
+  tempAgg.reset();
+  humAgg.reset();
+  presAgg.reset();
+  luxAgg.reset();
 }
 
 ////////////////////////////////////////////////////////////
@@ -835,64 +877,64 @@ void publishAgg()
 ////////////////////////////////////////////////////////////
 void connectMQTT()
 {
-    if (mqtt.connected())
-        return;
+  if (mqtt.connected())
+    return;
 
-    if (millis() - lastTry < 5000)
-        return;
+  if (millis() - lastTry < 5000)
+    return;
 
-    lastTry = millis();
+  lastTry = millis();
 
-    Serial.print("MQTT connecting... ");
+  Serial.print("MQTT connecting... ");
 
-    //------------------------------------------------------
-    // Build LWT topic
-    //------------------------------------------------------
-    char topicStatus[64];
-    snprintf(
-        topicStatus,
-        sizeof(topicStatus),
-        "%s/system/status",
-        MQTT_DEVICE_ID);
+  //------------------------------------------------------
+  // Build LWT topic
+  //------------------------------------------------------
+  char topicStatus[64];
+  snprintf(
+      topicStatus,
+      sizeof(topicStatus),
+      "%s/system/status",
+      MQTT_DEVICE_ID);
 
-    //------------------------------------------------------
-    // Last Will payload (offline)
-    //------------------------------------------------------
-    char willPayload[64];
-    snprintf(
-        willPayload,
-        sizeof(willPayload),
-        "%lu,0",
-        (unsigned long)time(nullptr));
+  //------------------------------------------------------
+  // Last Will payload (offline)
+  //------------------------------------------------------
+  char willPayload[64];
+  snprintf(
+      willPayload,
+      sizeof(willPayload),
+      "%lu,0",
+      (unsigned long)time(nullptr));
 
-    //------------------------------------------------------
-    // Connect
-    //------------------------------------------------------
-    if (mqtt.connect(
-            MQTT_DEVICE_ID,
-            topicStatus,   // LWT topic
-            1,
-            true,          // retain
-            willPayload))
-    {
-        Serial.println("OK");
+  //------------------------------------------------------
+  // Connect
+  //------------------------------------------------------
+  if (mqtt.connect(
+          MQTT_DEVICE_ID,
+          topicStatus, // LWT topic
+          1,
+          true, // retain
+          willPayload))
+  {
+    Serial.println("OK");
 
-        mqtt.setKeepAlive(30);
-        mqtt.setSocketTimeout(10);
+    mqtt.setKeepAlive(30);
+    mqtt.setSocketTimeout(10);
 
-        // publish ONLINE retained
-        mqttSendCSV(
-            time(nullptr),
-            "system",
-            "status",
-            1.0f,
-            true);
-    }
-    else
-    {
-        Serial.print("FAIL rc=");
-        Serial.println(mqtt.state());
-    }
+    // publish ONLINE retained
+    mqttSendCSV(
+        time(nullptr),
+        "system",
+        "status",
+        1.0f,
+        true);
+  }
+  else
+  {
+    Serial.print("FAIL rc=");
+    Serial.println(mqtt.state());
+  }
 }
 ////////////////////////////////////////////////////////////
 // WEB JSON
@@ -974,17 +1016,17 @@ canvas { width:100%; }
   </div>
 
   <div class="card">
-    <div class="stat">dCO₂: <span id="co2grad_val">--</span> ppm/s</div>
+    <div class="stat">dCO₂: <span id="co2grad_val">--</span> ppm/min</div>
     <canvas id="co2gradChart" height="180"></canvas>
   </div>
 
   <div class="card">
-    <div class="stat">dT: <span id="tgrad_val">--</span> °C/s</div>
+    <div class="stat">dT: <span id="tgrad_val">--</span> °C/min</div>
     <canvas id="tgradChart" height="180"></canvas>
   </div>
 
   <div class="card">
-    <div class="stat">dRH: <span id="hgrad_val">--</span> %/s</div>
+    <div class="stat">dRH: <span id="hgrad_val">--</span> %/min</div>
     <canvas id="hgradChart" height="180"></canvas>
   </div>
   
@@ -1019,6 +1061,7 @@ const sysEl=document.getElementById("sys")
 const UPDATE_INTERVAL=5000 // ms, should match SAMPLE_INTERVAL_SCD40 in firmware
 const HISTORY_DURATION=60*60*1000 // ms, 10 hours
 const MAX_POINTS=HISTORY_DURATION/UPDATE_INTERVAL
+const PER_MINUTE = 60;
 
 function chart(id,color,min,max){
   return new Chart(
@@ -1064,31 +1107,41 @@ const humChart=chart("humChart","#0099ff",20,80)
 const presChart=chart("presChart","#ffc857",900,1100)
 const luxChart=chart("luxChart","#ffffff",0,500)  
 const co2Chart=chart("co2Chart","#0dff00",400,1600)
-const co2gradChart = chart("co2gradChart", "#aaffaa", -4., 4.);
-const tgradChart=chart("tgradChart","#ffaaaa",-.02,.02)
-const hgradChart=chart("hgradChart","#00eeff",-.1,.1)
+const co2gradChart = chart("co2gradChart", "#aaffaa", -5000, 5000);
+const tgradChart=chart("tgradChart","#ffaaaa",-10,10)
+const hgradChart=chart("hgradChart","#00eeff",-10,10)
 
 
 async function update(){
   const r=await fetch("/data")
   const j=await r.json()
+
+const co2g = j.co2_grad * PER_MINUTE;
+const tg   = j.temp_grad * PER_MINUTE;
+const hg   = j.hum_grad * PER_MINUTE;
+
+co2gradEl.innerText = co2g.toFixed(1);
+tgradEl.innerText   = tg.toFixed(2);
+hgradEl.innerText   = hg.toFixed(2);
+
+
 co2El.innerText = j.co2.toFixed(0);
 tempEl.innerText = j.temp.toFixed(2);
 humEl.innerText = j.hum.toFixed(2);
 presEl.innerText = j.pres.toFixed(1);
 luxEl.innerText = j.lux.toFixed(1);
-co2gradEl.innerText = j.co2_grad.toFixed(3);
-tgradEl.innerText = j.temp_grad.toFixed(3);
-hgradEl.innerText = j.hum_grad.toFixed(3);
+
 
   push(tempChart,j.temp)
   push(humChart,j.hum)
   push(presChart,j.pres)
   push(luxChart,j.lux)
   push(co2Chart,j.co2)
-  push(co2gradChart, j.co2_grad);
-  push(tgradChart,j.temp_grad)
-  push(hgradChart,j.hum_grad)
+
+push(co2gradChart, co2g);
+push(tgradChart, tg);
+push(hgradChart, hg);
+
 
   sysEl.innerHTML=
     "WiFi RSSI: "+j.wifi_rssi+" dBm<br>"+
