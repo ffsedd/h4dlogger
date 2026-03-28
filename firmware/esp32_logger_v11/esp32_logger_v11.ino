@@ -1,4 +1,4 @@
-#include <WiFi.h>
+#include <WiFi.h> //
 #include <Wire.h>
 
 #include <PubSubClient.h>
@@ -36,7 +36,7 @@
 #define SAMPLE_INTERVAL_SCD40 5000 // 5 s sampling for SCD40 (slow sensor)
 #define AGG_INTERVAL 300000        // 5 min aggregation
 #define FILTER_N 5                 // 5 s running mean
-#define SERIAL_PRINT_VALUES 0
+#define SERIAL_PRINT_VALUES 1
 
 // ================= RUNNING MEAN =================
 template <int N>
@@ -104,8 +104,37 @@ float co2Grad = 0;
 float co2 = NAN;
 float co2Smooth = NAN;
 
-// unified control signal (LED etc.)
-float g_co2 = NAN;
+// ================= LD1020 motion sensor =================
+constexpr uint8_t PIN_LD1020 = 5;
+
+struct LD1020Status
+{
+  bool present = false;
+  bool motion = false;     // current state
+  bool lastMotion = false; // previous state
+} ld1020;
+
+struct LD1020Agg
+{
+  uint32_t motionCount = 0;
+  uint32_t totalCount = 0;
+
+  void add(bool motion)
+  {
+    if (motion)
+      motionCount++;
+    totalCount++;
+  }
+
+  float fraction() const
+  {
+    return totalCount ? float(motionCount) / totalCount : 0.0f;
+  }
+
+  void reset() { motionCount = totalCount = 0; }
+};
+
+LD1020Agg ld1020Agg;
 
 // ================= HW / NETWORK =================
 
@@ -341,6 +370,17 @@ void detectSensors()
 
   Serial.println();
 }
+
+void setupLD1020()
+{
+  pinMode(PIN_LD1020, INPUT); // LD1020 output is digital high on motion
+  ld1020.present = true;      // mark as present
+  ld1020.motion = digitalRead(PIN_LD1020);
+  ld1020.lastMotion = ld1020.motion;
+
+  Serial.println("[LD1020] initialized on GPIO5");
+}
+
 ////////////////////////////////////////////////////////////
 // FILTER CORE
 ////////////////////////////////////////////////////////////
@@ -400,6 +440,21 @@ float co2Hist[3] = {NAN, NAN, NAN};
 void readFastSensors()
 {
   const float dt = SAMPLE_INTERVAL / 1000.0f;
+
+  // ---------- LD1020 ----------
+  if (ld1020.present)
+  {
+    ld1020.motion = digitalRead(PIN_LD1020);
+    ld1020Agg.add(ld1020.motion);
+
+    // Optional: detect rising edge
+    if (ld1020.motion && !ld1020.lastMotion)
+    {
+      Serial.println("[LD1020] motion detected!");
+    }
+
+    ld1020.lastMotion = ld1020.motion;
+  }
 
   // ---------- SHT4x ----------
   if (shtStat.initialized)
@@ -504,8 +559,6 @@ void readSCD40()
     float g = (co2Hist[2] - co2Hist[0]) / (2.0f * dt);
     co2Grad = co2GradLPF.update(g, dt);
   }
-
-  g_co2 = co2Smooth;
 }
 
 ////////////////////////////////////////////////////////////
@@ -649,7 +702,7 @@ void setupTime()
 
 void updateLED()
 {
-  if (isnan(g_co2))
+  if (isnan(co2Smooth))
     return;
   static uint32_t lastUpdate = 0;
   static uint32_t lastBlink = 0;
@@ -659,7 +712,7 @@ void updateLED()
 
   uint8_t g = 0, y = 0, r = 0;
 
-  float co2 = g_co2;
+  float co2 = co2Smooth;
 
   // ---------- CRITICAL: fast blink (>1600) ----------
   if (co2 > 1600)
@@ -735,7 +788,7 @@ void updateLED()
   if (SERIAL_PRINT_VALUES)
   {
     static uint32_t lastLog = 0;
-    if (now - lastLog > 1000)
+    if (now - lastLog > 5000)
     {
       lastLog = now;
       Serial.printf("[LED] CO2=%.1f G=%u Y=%u R=%u\n", co2, g, y, r);
@@ -812,6 +865,23 @@ void mqttSendAll()
   // ---- Environment ----
   mqttSendCSV(ts, "bmp280", "pressure", pres);
   mqttSendCSV(ts, "tsl2591", "lux", lux);
+
+  // ---- LD1020 motion ----
+  mqttSendCSV(ts, "ld1020", "motion", ld1020.motion ? 1.0 : 0.0);
+
+  // ---- SERIAL PRINT ALL ----
+  if (SERIAL_PRINT_VALUES)
+  {
+    Serial.printf("[MQTT] sht40 temp=%.2f temp_smooth=%.2f temp_grad=%.3f\n",
+                  temp, tempSmooth, tempGrad);
+    Serial.printf("[MQTT] sht40 hum=%.2f hum_smooth=%.2f hum_grad=%.3f\n",
+                  hum, humSmooth, humGrad);
+    Serial.printf("[MQTT] scd40 co2=%.0f co2_smooth=%.0f co2_grad=%.3f\n",
+                  co2, co2Smooth, co2Grad);
+    Serial.printf("[MQTT] bmp280 pressure=%.2f\n", pres);
+    Serial.printf("[MQTT] tsl2591 lux=%.2f\n", lux);
+    Serial.printf("[MQTT] ld1020 motion=%d\n", ld1020.motion ? 1 : 0);
+  }
 }
 
 ////////////////////////////////////////////////////////////
@@ -823,9 +893,9 @@ void publishAgg()
     return;
 
   time_t ts_center = time(nullptr);
-
-  if (lastAgg >= AGG_INTERVAL)
-    ts_center -= AGG_INTERVAL / 2000;
+  // center timestamp for interval
+  if (lastAgg != 0)
+    ts_center -= AGG_INTERVAL / 2 / 1000; // seconds
 
   // ---------- Temperature ----------
   if (tempAgg.count)
@@ -865,11 +935,18 @@ void publishAgg()
   mqttSendCSV(ts_center, "scd40", "co2_smooth", co2Smooth);
   mqttSendCSV(ts_center, "scd40", "co2_grad", co2Grad);
 
+  // ---------- LD1020 motion ----------
+  if (ld1020Agg.totalCount > 0)
+    mqttSendCSV(ts_center, "ld1020", "motion_fraction", ld1020Agg.fraction());
+
   // reset aggregators
   tempAgg.reset();
   humAgg.reset();
   presAgg.reset();
   luxAgg.reset();
+  ld1020Agg.reset();
+
+  lastAgg = millis(); // track last publish
 }
 
 ////////////////////////////////////////////////////////////
@@ -927,7 +1004,7 @@ void connectMQTT()
         time(nullptr),
         "system",
         "status",
-        1.0f,
+        1,
         true);
   }
   else
@@ -948,23 +1025,20 @@ String jsonData()
   };
 
   char buf[1024];
-
   snprintf(buf, sizeof(buf),
            "{\"temp\":%.2f,\"hum\":%.2f,\"pres\":%.2f,\"lux\":%.2f,"
            "\"temp_smooth\":%.2f,\"hum_smooth\":%.2f,"
            "\"temp_grad\":%.3f,\"hum_grad\":%.3f,"
-           "\"co2\":%.0f,"
-           "\"co2_smooth\":%.0f,"
-           "\"co2_grad\":%.3f,"
+           "\"co2\":%.0f,\"co2_smooth\":%.0f,\"co2_grad\":%.3f,"
+           "\"ld1020_motion\":%d,"
            "\"wifi_rssi\":%d,\"wifi_ch\":%d,"
            "\"heap\":%u,\"heap_min\":%u,"
            "\"uptime\":%lu,\"ip\":\"%s\",\"mqtt\":%s}",
-
            safe(temp), safe(hum), safe(pres), safe(lux),
            safe(tempSmooth), safe(humSmooth),
            safe(tempGrad), safe(humGrad),
            safe(co2), safe(co2Smooth), safe(co2Grad),
-
+           ld1020.motion ? 1 : 0,
            WiFi.RSSI(), WiFi.channel(),
            ESP.getFreeHeap(), ESP.getMinFreeHeap(),
            millis() / 1000,
@@ -1107,8 +1181,8 @@ const humChart=chart("humChart","#0099ff",20,80)
 const presChart=chart("presChart","#ffc857",900,1100)
 const luxChart=chart("luxChart","#ffffff",0,500)  
 const co2Chart=chart("co2Chart","#0dff00",400,1600)
-const co2gradChart = chart("co2gradChart", "#aaffaa", -5000, 5000);
-const tgradChart=chart("tgradChart","#ffaaaa",-10,10)
+const co2gradChart = chart("co2gradChart", "#aaffaa", -100, 100);
+const tgradChart=chart("tgradChart","#ffaaaa",-50,50)
 const hgradChart=chart("hgradChart","#00eeff",-10,10)
 
 
@@ -1225,6 +1299,7 @@ void setup()
 
   scanI2C();
   detectSensors();
+  setupLD1020();
 
   mqtt.setServer(MQTT_HOST, MQTT_PORT);
 
