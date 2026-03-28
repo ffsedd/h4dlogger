@@ -1,107 +1,83 @@
 from __future__ import annotations
-
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Optional
 
 import pandas as pd
 
 
 @dataclass(frozen=True, slots=True)
 class SensorLog:
-    """
-    Parser for line-based sensor log files.
-
-    Expected log line format:
-
-        <timestamp> <topic> <payload>
-
-    Example:
-        1700000000 sensors/device1/temp/temp_mean 21.5
-
-    Topic structure must contain four parts:
-
-        prefix/device/sensor/metric
-
-    Example:
-        sensors/device1/temp/temp_mean
-
-    The parser extracts:
-        ts         Unix timestamp (seconds)
-        sensor_id  "device/sensor"
-        metric     metric name
-        value      float value
-    """
-
     path: Path
 
-    def rows(self) -> Iterable[tuple[int, str, str, float]]:
+    def rows(
+        self, start_ts: Optional[int] = None, end_ts: Optional[int] = None
+    ) -> Iterable[tuple[int, str, str, float]]:
         """
-        Stream parsed rows from the log file.
+        Stream parsed rows from the log file (CSV-style: topic,ts,value)
+        with optional timestamp filtering.
 
         Yields
         ------
-        tuple
+        tuple[int, str, str, float]
             (timestamp, sensor_id, metric, value)
-
-        Invalid lines are skipped if:
-        - the line does not have exactly 3 whitespace-separated parts
-        - timestamp is not an integer
-        - payload is not a float
-        - topic does not contain exactly four segments
         """
-
-        with self.path.open() as f:
+        if not Path(self.path).is_file():
+            raise FileNotFoundError(f"File not found: {self.path}")
+        with Path(self.path).open() as f:
             for line in f:
-                # Split only first two spaces so payload may contain spaces
-                parts = line.split(maxsplit=2)
+                parts = line.strip().split(",", 2)
                 if len(parts) != 3:
                     continue
 
-                ts_raw, topic, payload = parts
+                topic, ts_raw, payload = parts
 
-                # Validate timestamp and numeric payload
                 try:
                     ts = int(ts_raw)
                     value = float(payload)
                 except ValueError:
                     continue
 
-                # Parse topic structure
-                t = topic.split("/")
-
-                if len(t) != 4:
+                if start_ts is not None and ts < start_ts:
+                    continue
+                if end_ts is not None and ts > end_ts:
                     continue
 
-                _, device, sensor, metric = t
+                t = topic.split("/")
+                if len(t) < 3:
+                    
+                    continue  # malformed topic
 
-                # Compose sensor identifier
-                sensor_id = f"{device}/{sensor}"
+                device = t[0]
+                sensor = t[1]
+                metric = t[2]
 
-                yield ts, sensor_id, metric, value
+                yield ts, device, sensor, metric, value
 
-    def parse(self) -> pd.DataFrame:
+    def parse(self, sort: bool = True) -> pd.DataFrame:
         """
-        Parse the log file into a pandas DataFrame.
+        Parse the log file into a DataFrame.
 
         Returns
         -------
-        DataFrame
-            Columns:
-            - ts (datetime64[ns, UTC])
-            - sensor (str)
-            - unit (str)
-            - value (float)
-
-        Empty files or files without valid lines return an empty DataFrame.
+        pd.DataFrame
+            Columns: ts (UTC datetime), sensor, unit, value
         """
-
-        df = pd.DataFrame(self.rows(), columns=["ts", "sensor", "unit", "value"])
-
+        df = pd.DataFrame(self.rows(), columns=["ts", "device", "sensor", "metric", "value"])
         if df.empty:
             return df
 
-        # Convert unix timestamp to timezone-aware datetime
         df["ts"] = pd.to_datetime(df["ts"], unit="s", utc=True)
 
+        if sort:
+            df = df.sort_values(["device", "metric", "sensor"]).reset_index(drop=True)
+
         return df
+
+
+if __name__ == "__main__":
+    s = SensorLog("/home/m/mnt/dlogger/logs/kitchen_2026-03-28.log")
+    df = s.parse()
+    print(df)
+    print(df.describe())
+    print(df[df.metric == "co2_smooth"])

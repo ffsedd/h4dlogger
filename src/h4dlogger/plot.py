@@ -25,7 +25,7 @@ def plot_dashboard(
         ("abs_hum", "Absolute Humidity (g/m³)", "orange"),
         ("pressure_mean", "Pressure (hPa)", "purple"),
         ("lux_mean", "Light (lx)", "brown"),
-        ("co2", "CO₂ (ppm)", "black"),
+        ("co2_smooth", "CO₂ (ppm)", "black"),
     ]
 
     SYS_METRICS = [

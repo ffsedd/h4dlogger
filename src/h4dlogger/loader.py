@@ -4,12 +4,11 @@ from typing import Iterable
 import pandas as pd
 from .parser import SensorLog
 
-
 def load_logs(paths: Iterable[Path]) -> pd.DataFrame:
     dfs = []
 
     for p in sorted(paths):
-        df = SensorLog(p).parse()
+        df = SensorLog(p).parse(sort=False)
         if not df.empty:
             dfs.append(df)
 
@@ -18,18 +17,27 @@ def load_logs(paths: Iterable[Path]) -> pd.DataFrame:
 
     df = pd.concat(dfs)
 
-    # Filter only base sensors (omit min, max, grad)
-    df = df[~df['unit'].str.endswith(('min', 'max', 'grad'))]
+    # Remove duplicate rows
+    df = df.drop_duplicates()
 
-    # pivot to MultiIndex
+    # Filter only base sensors (omit _min, _max, _grad)
+    df = df[~df['metric'].str.endswith(('_min', '_max', '_grad'))]
+
+    # Pivot to MultiIndex: (metric/unit, sensor_id)
     df = df.pivot_table(
         index='ts',
-        columns=['unit', 'sensor'],
+        columns=['metric', 'sensor'],
         values='value',
         aggfunc='mean'
     ).sort_index()
 
-    # name the levels for plotting
-    df.columns.names = ['unit', 'sensor']
-    print(f"Loaded data with shape {df.shape} and columns: {df.columns.tolist()}"   )
+    # Name the levels for plotting
+    df.columns.names = ['metric', 'sensor']
+
+    print(f"Loaded data with shape {df.shape} and columns: {df.columns.tolist()}")
     return df
+    
+    
+if __name__ == "__main__":
+    df = load_logs([Path("/home/m/mnt/dlogger/logs/kitchen_2026-03-28.log")])
+    print(df)    

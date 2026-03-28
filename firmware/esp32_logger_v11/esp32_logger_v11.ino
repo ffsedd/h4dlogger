@@ -1062,7 +1062,7 @@ function push(chart,v){
 const tempChart=chart("tempChart","#ff0000",10,30)
 const humChart=chart("humChart","#0099ff",20,80)
 const presChart=chart("presChart","#ffc857",900,1100)
-const luxChart=chart("luxChart","#ffffff",0,200)  
+const luxChart=chart("luxChart","#ffffff",0,500)  
 const co2Chart=chart("co2Chart","#0dff00",400,1600)
 const co2gradChart = chart("co2gradChart", "#aaffaa", -8., 8.);
 const tgradChart=chart("tgradChart","#ffaaaa",-.1,.1)
