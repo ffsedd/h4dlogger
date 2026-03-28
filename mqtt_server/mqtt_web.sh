@@ -1,6 +1,6 @@
 #!/bin/sh
 # /mnt/data/mqtt_web.sh
-# Show latest MQTT readings (CGI)
+# Show latest MQTT readings (CGI), sorted by sensor/metric
 
 LOGDIR="/mnt/data/logs"
 TODAY=$(date +%Y-%m-%d)
@@ -33,23 +33,28 @@ th{background:#eee}
 EOF
 
 # ---------------- collect newest values ----------------
-awk -F',' -v today="$TODAY" '
-
-# keep only newest record per location/sensor/metric
+awk -F',' '
 {
-    key = $2 "|" $3 "|" $4
-    data[key] = $0
+    key = $1
+    if (!(key in ts) || $2 > ts[key]) {
+        ts[key] = $2
+        val[key] = $3
+    }
 }
-
 END {
-    for (k in data)
-        print data[k]
+    for (k in ts)
+        print k "," ts[k] "," val[k]
 }
-
 ' "$LOGDIR"/*_"$TODAY".log 2>/dev/null |
-while IFS=',' read -r TS LOCATION SENSOR METRIC VALUE
+# split fields, add Sensor/Metric as sort keys
+awk -F',' '{ 
+    split($1, a, "/"); 
+    print a[1] "," a[2] "," a[3] "," $3 "," $2 
+}' |
+# sort by Sensor, then Metric
+sort -t',' -k2,2 -k3,3 |
+while IFS=',' read -r LOCATION SENSOR METRIC VALUE TS
 do
-    # portable timestamp conversion (busybox + GNU)
     TIME=$(date -d "@$TS" "+%F %T" 2>/dev/null || date -r "$TS" "+%F %T")
 
     printf "<tr>"
