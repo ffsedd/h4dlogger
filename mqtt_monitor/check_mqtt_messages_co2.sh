@@ -1,0 +1,1 @@
+mosquitto_sub -h 10.11.12.1 -p 1883 -t "kitchen/scd40/co2_smooth" -v
