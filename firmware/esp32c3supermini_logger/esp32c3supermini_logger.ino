@@ -4,7 +4,6 @@
 #include <PubSubClient.h>
 #include <ArduinoOTA.h>
 #include <time.h>
-#include "wifi_secrets.h"
 #include <Arduino.h> // for ledc* functions
 #include <ArduinoJson.h>
 #include <ESPAsyncWebServer.h>
@@ -49,7 +48,7 @@ constexpr gpio_num_t PIN_I2C_SCL = GPIO_NUM_6;
 #define TZ_INFO "CET-1CEST,M3.5.0,M10.5.0/3"
 
 #define SAMPLE_INTERVAL 500         // 0.5 s
-#define SAMPLE_INTERVAL_SCD40 10000 // 10 s
+#define SAMPLE_INTERVAL_SCD40 0 // disabled
 #define AGG_INTERVAL 300000         // 5 min
 #define FILTER_N 5
 
@@ -58,6 +57,14 @@ constexpr gpio_num_t PIN_I2C_SCL = GPIO_NUM_6;
 #define LOG_MOTION_EVENTS 0
 #define LOG_MQTT_EVENTS 0
 #define LOG_LED_EVENTS 0
+
+void startWeb();  // in file web.ino
+
+struct WifiHotspots {  // in file "wifi_secrets.h"
+    const char* ssid;
+    const char* password;
+};
+#include "wifi_secrets.h"
 
 ////////////////////////////////////////////////////////////
 // UTILS: RUNNING MEAN
@@ -281,7 +288,7 @@ inline void push3(float *h, float v)
 
 void scanI2C();
 bool isKnownAddr(uint8_t addr);
-void detectSensors();
+void detectI2Csensors();
 void setupLD1020();
 void setupAM312();
 void readFastSensors();
@@ -324,7 +331,7 @@ void scanI2C()
   Serial.println("===============================\n");
 }
 
-void detectSensors()
+void detectI2Csensors()
 {
   Serial.println("[BOOT] Detecting sensors...");
   shtStat.present = i2cDevices[0x44];
@@ -572,7 +579,7 @@ void wifiWatchdog()
   if (wifiLostAt == 0)
     wifiLostAt = millis();
 
-  if (millis() - wifiLostAt > 30000)
+  if (millis() - wifiLostAt > 3600000)
   {
     Serial.println("WiFi stalled -> reboot");
     ESP.restart();
@@ -583,35 +590,65 @@ void wifiWatchdog()
 // WIFI
 ////////////////////////////////////////////////////////////
 
-void connectWiFi()
+
+
+// Return index of known network with strongest RSSI, or -1 if none
+int findBestNetwork()
 {
+    int bestRSSI = -1000;
+    int bestIndex = -1;
+    int n = WiFi.scanNetworks();
+    for (int i = 0; i < n; i++)
+    {
+        String ssid = WiFi.SSID(i);
+        int rssi = WiFi.RSSI(i);
 
-  if (WiFi.status() == WL_CONNECTED)
-    return;
-
-  Serial.print("WiFi connecting");
-
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-
-  uint8_t tries = 0;
-
-  while (WiFi.status() != WL_CONNECTED && tries < 30)
-  {
-    delay(1000);
-    Serial.print(".");
-    tries++;
-  }
-
-  Serial.println();
-
-  if (WiFi.status() == WL_CONNECTED)
-  {
-    Serial.print("IP ");
-    Serial.println(WiFi.localIP());
-  }
+        for (int j = 0; j < sizeof(wifihotspots) / sizeof(wifihotspots[0]); j++)
+        {
+            if (ssid == wifihotspots[j].ssid && rssi > bestRSSI)
+            {
+                bestRSSI = rssi;
+                bestIndex = j;
+            }
+        }
+    }
+    return bestIndex;
 }
 
+// Connect to best known network, optional timeout in ms
+bool connectBestNetwork(unsigned long timeout = 15000)
+{
+    int idx = findBestNetwork();
+    if (idx == -1)
+    {
+        Serial.println("No known network found");
+        return false;
+    }
+
+    WiFi.mode(WIFI_STA);
+    
+    WiFi.begin(wifihotspots[idx].ssid, wifihotspots[idx].password);
+
+    Serial.print("Connecting to ");
+    Serial.println(wifihotspots[idx].ssid);
+
+    unsigned long start = millis();
+    while (WiFi.status() != WL_CONNECTED)
+    {
+        delay(500);
+        Serial.print(WiFi.status());
+        if (millis() - start > timeout)
+        {
+            Serial.println("\nConnection timed out");
+            return false;
+        }
+    }
+
+    Serial.println("\nConnected!");
+    Serial.print("IP Address: ");
+    Serial.println(WiFi.localIP());
+    return true;
+}
 ////////////////////////////////////////////////////////////
 // NTP
 ////////////////////////////////////////////////////////////
@@ -1014,10 +1051,11 @@ String jsonData()
 {
     auto safe = [](float v) { return isnan(v) || isinf(v) ? 0.0f : v; };
 
-    char buf[1400]; // slightly larger to accommodate DEVICE_ID
+    char buf[1500]; // slightly larger for SSID
 
     snprintf(buf, sizeof(buf),
              "{\"device\":\"%s\","
+             "\"ssid\":\"%s\","
              "\"temp\":%.2f,\"hum\":%.2f,\"pres\":%.2f,\"lux\":%.2f,"
              "\"temp_smooth\":%.2f,\"hum_smooth\":%.2f,"
              "\"temp_grad\":%.3f,\"hum_grad\":%.3f,"
@@ -1026,7 +1064,8 @@ String jsonData()
              "\"wifi_rssi\":%d,\"wifi_ch\":%d,"
              "\"heap\":%u,\"heap_min\":%u,"
              "\"uptime\":%lu,\"ip\":\"%s\",\"mqtt\":%s}",
-             DEVICE_ID,  
+             DEVICE_ID,
+             WiFi.SSID().c_str(), 
              safe(temp), safe(hum), safe(pres), safe(lux),
              safe(tempSmooth), safe(humSmooth),
              safe(tempGrad), safe(humGrad),
@@ -1086,20 +1125,29 @@ void setup()
   Wire.setTimeOut(50);
 
   // LED output PWM
+  
   // setupLED();
 
-  connectWiFi();
+  //~ connectWiFi();
+  
+  WiFi.mode(WIFI_STA);
+  connectBestNetwork(); // Try to connect on startup
+  
   setupTime();
 
   scanI2C();
-  detectSensors();
+
+  detectI2Csensors();
+
   setupLD1020();
+  setupAM312();
 
   mqtt.setServer(MQTT_HOST, MQTT_PORT);
 
   printSystemInfo();
 
   startWeb();
+  
   setupOTA();
 }
 
@@ -1110,7 +1158,13 @@ void loop()
 {
   wifiWatchdog();
 
-  connectWiFi();
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("Wi-Fi lost. Reconnecting...");
+        connectBestNetwork();
+}
+
+
+  //~ connectWiFi();
   connectMQTT();
 
   mqtt.loop();
