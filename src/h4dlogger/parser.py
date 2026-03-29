@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
@@ -12,15 +13,15 @@ class SensorLog:
 
     def rows(
         self, start_ts: Optional[int] = None, end_ts: Optional[int] = None
-    ) -> Iterable[tuple[int, str, str, float]]:
+    ) -> Iterable[tuple[int, str, str, str, float]]:
         """
         Stream parsed rows from the log file (CSV-style: topic,ts,value)
         with optional timestamp filtering.
 
         Yields
         ------
-        tuple[int, str, str, float]
-            (timestamp, sensor_id, metric, value)
+        tuple[int, str, str, str, float]
+            (timestamp, device, sensor, metric, value)
         """
         if not Path(self.path).is_file():
             raise FileNotFoundError(f"File not found: {self.path}")
@@ -45,7 +46,6 @@ class SensorLog:
 
                 t = topic.split("/")
                 if len(t) < 3:
-                    
                     continue  # malformed topic
 
                 device = t[0]
@@ -76,8 +76,8 @@ class SensorLog:
 
 
 if __name__ == "__main__":
-    s = SensorLog("/home/m/mnt/dlogger/logs/kitchen_2026-03-28.log")
+    s = SensorLog(Path("/home/m/mnt/dlogger/logs/kitchen_2026-03-28.log"))
     df = s.parse()
     print(df)
     print(df.describe())
-    print(df[df.metric == "co2_smooth"])
+    print(df[df.metric == "co2_grad"])

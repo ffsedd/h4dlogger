@@ -4,7 +4,7 @@ import argparse
 from pathlib import Path
 
 from .loader import load_logs
-from .metrics import add_metrics
+from .metrics import add_abs_humidity
 from .plot import plot_dashboard
 
 
@@ -32,7 +32,7 @@ def main() -> None:
         print("no data")
         return
 
-    df = add_metrics(df)
+    df = add_abs_humidity(df)
 
     plot_dashboard(
         df,

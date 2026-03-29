@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from h4dlogger.metrics import dew_point, absolute_humidity, add_metrics
+from h4dlogger.metrics import absolute_humidity, add_abs_humidity, dew_point
 
 
 def test_dew_point_known_value() -> None:
@@ -53,7 +53,7 @@ def make_test_df() -> pd.DataFrame:
 def test_add_metrics_adds_columns() -> None:
     df = make_test_df()
 
-    out = add_metrics(df.copy())
+    out = add_abs_humidity(df.copy())
 
     assert ("dew", "s1") in out.columns
     assert ("abs_hum", "s1") in out.columns
@@ -63,7 +63,7 @@ def test_add_metrics_adds_columns() -> None:
 
 def test_add_metrics_values_match_functions() -> None:
     df = make_test_df()
-    out = add_metrics(df.copy())
+    out = add_abs_humidity(df.copy())
 
     expected_dew = dew_point(df[("temp_mean", "s1")], df[("rh_mean", "s1")])
     expected_ah = absolute_humidity(df[("temp_mean", "s1")], df[("rh_mean", "s1")])
@@ -82,7 +82,7 @@ def test_add_metrics_missing_sensor_pair() -> None:
 
     df = pd.DataFrame([[20, 50]], columns=cols)
 
-    out = add_metrics(df.copy())
+    out = add_abs_humidity(df.copy())
 
     assert ("dew", "s1") not in out.columns
     assert ("dew", "s2") not in out.columns
@@ -96,6 +96,6 @@ def test_add_metrics_non_multiindex_returns_original() -> None:
         }
     )
 
-    out = add_metrics(df.copy())
+    out = add_abs_humidity(df.copy())
 
     assert list(out.columns) == list(df.columns)
