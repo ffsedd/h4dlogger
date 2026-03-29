@@ -106,6 +106,12 @@ Use one and only one of the options above, otherwise the board and/or the power 
 
 
 ## SENSORS
+
+AM312 Mini Pyroelectric PIR 
+3-12VIN
+https://www.image.micros.com.pl/_dane_techniczne_auto/cz%20am312.pdf
+HT30 linear voltage regulator
+
 LD1020 Human Microwave Radar ($2)   
 5VIN 3VOUT
 decoupling input: 10 µF + 100 nF 
@@ -130,6 +136,8 @@ TSL2591 Light ($4)
 3V
 decoupling input: 100 nF
 https://cdn-shop.adafruit.com/datasheets/TSL25911_Datasheet_EN_v1.pdf
+
+
 
 ## WIRING
 I2C:

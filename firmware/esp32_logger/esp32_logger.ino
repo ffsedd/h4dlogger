@@ -1,6 +1,5 @@
-#include <WiFi.h> //
+#include <WiFi.h>
 #include <Wire.h>
-
 #include <PubSubClient.h>
 #include <ArduinoOTA.h>
 #include <time.h>
@@ -25,20 +24,21 @@
 #define I2C_SDA 21
 #define I2C_SCL 22
 
-#define WDT_TIMEOUT 120 // watchdog timeout in seconds
+#define WDT_TIMEOUT 120 // seconds
 
 #define NTP_SERVER "tak.cesnet.cz"
 #define TZ_INFO "CET-1CEST,M3.5.0,M10.5.0/3"
 
-// ================= CONFIG =================
-
-#define SAMPLE_INTERVAL 500        // 0.5 s sampling
-#define SAMPLE_INTERVAL_SCD40 5000 // 5 s sampling for SCD40 (slow sensor)
-#define AGG_INTERVAL 300000        // 5 min aggregation
-#define FILTER_N 5                 // 5 s running mean
+#define SAMPLE_INTERVAL 500        // 0.5 s
+#define SAMPLE_INTERVAL_SCD40 5000 // 5 s
+#define AGG_INTERVAL 300000        // 5 min
+#define FILTER_N 5
 #define SERIAL_PRINT_VALUES 1
 
-// ================= RUNNING MEAN =================
+////////////////////////////////////////////////////////////
+// UTILS: RUNNING MEAN
+////////////////////////////////////////////////////////////
+
 template <int N>
 struct RunningMean
 {
@@ -61,97 +61,85 @@ struct RunningMean
       buf[idx] = v;
       sum += v;
     }
-
     idx = (idx + 1) % N;
     return sum / count;
   }
 };
+
 ////////////////////////////////////////////////////////////
 // GLOBALS
 ////////////////////////////////////////////////////////////
 
-// ================= FILTERS =================
+RunningMean<FILTER_N> tempF, humF, luxF;
 
-RunningMean<FILTER_N> tempF;
-RunningMean<FILTER_N> humF;
-RunningMean<FILTER_N> luxF;
-
-// ================= PRIMARY VALUES =================
-
-float temp = NAN;
-float hum = NAN;
-float pres = NAN;
-float lux = NAN;
-
-// ================= FILTERED VALUES =================
-
-float tempSmooth = NAN;
-float humSmooth = NAN;
-float luxSmooth = NAN;
-
-// ================= DERIVATIVES =================
-
-float tempPrev = NAN;
-float humPrev = NAN;
-float co2Prev = NAN;
-
-float tempGrad = 0;
-float humGrad = 0;
-float co2Grad = 0;
-
-// ================= CO2 (sensor-limited) =================
-
+float temp = NAN, hum = NAN, pres = NAN, lux = NAN;
+float tempSmooth = NAN, humSmooth = NAN, luxSmooth = NAN;
+float tempPrev = NAN, humPrev = NAN, co2Prev = NAN;
+float tempGrad = 0, humGrad = 0, co2Grad = 0;
 float co2 = NAN;
 float co2Smooth = NAN;
 
-// ================= AGGREGATION =================
-// aggregation window start (wall clock)
 time_t aggStartTs = 0;
-
-// ================= TIMING =================
 uint32_t lastSample = 0;
 uint32_t lastAgg = 0;
-uint32_t lastTry = 0;
+uint32_t lastMqttTry = 0;
 
-// ================= LD1020 motion sensor =================
-constexpr uint8_t PIN_LD1020 = 5;
+////////////////////////////////////////////////////////////
+// MOTION SENSORS
+////////////////////////////////////////////////////////////
+constexpr uint32_t MOTION_HOLD_MS = 10000; // time to hold LED on after motion detected (ms)
 
-uint32_t lastMotionTs = 0;
-constexpr uint32_t MOTION_HOLD_MS = 10000; // 10 s
-
-struct LD1020Status
+constexpr uint8_t PIN_AM312 = 19;
+struct am312Status
 {
-  bool present = false;
-  bool motion = false;     // current state
-  bool lastMotion = false; // previous state
-} ld1020;
+  bool present = true;
+  bool motion = false;
+  bool lastMotion = false;
+  uint32_t lastMotionTs = 0;
+} am312;
 
-struct LD1020Agg
+struct AM312Agg
 {
   uint32_t motionCount = 0;
   uint32_t totalCount = 0;
-
   void add(bool motion)
   {
     if (motion)
       motionCount++;
     totalCount++;
   }
-
-  float fraction() const
-  {
-    return totalCount ? float(motionCount) / totalCount : 0.0f;
-  }
-
+  float fraction() const { return totalCount ? float(motionCount) / totalCount : 0.0f; }
   void reset() { motionCount = totalCount = 0; }
-};
+} am312Agg;
 
-LD1020Agg ld1020Agg;
+constexpr uint8_t PIN_LD1020 = 5;
 
-// ================= HW / NETWORK =================
+struct LD1020Status
+{
+  bool present = false;
+  bool motion = false;
+  bool lastMotion = false;
+  uint32_t lastMotionTs = 0;
+} ld1020;
+struct LD1020Agg
+{
+  uint32_t motionCount = 0;
+  uint32_t totalCount = 0;
+  void add(bool motion)
+  {
+    if (motion)
+      motionCount++;
+    totalCount++;
+  }
+  float fraction() const { return totalCount ? float(motionCount) / totalCount : 0.0f; }
+  void reset() { motionCount = totalCount = 0; }
+} ld1020Agg;
+
+////////////////////////////////////////////////////////////
+// HW / NETWORK
+////////////////////////////////////////////////////////////
 
 AsyncWebServer server(80);
-
 WiFiClient wifiClient;
 PubSubClient mqtt(wifiClient);
 
@@ -160,48 +148,31 @@ Adafruit_BMP280 bmp;
 Adafruit_TSL2591 tsl = Adafruit_TSL2591(2591);
 SCD4x scd4;
 
-// ================= LED =================
+////////////////////////////////////////////////////////////
+// LED
+////////////////////////////////////////////////////////////
 
-constexpr uint8_t PIN_G = 14;
-constexpr uint8_t PIN_Y = 13;
-constexpr uint8_t PIN_R = 27;
-
+constexpr uint8_t PIN_G = 14, PIN_Y = 13, PIN_R = 27;
 constexpr uint32_t PWM_FREQ = 1000;
 constexpr uint8_t PWM_RES = 8;
-
-void setupWDT()
-{
-  esp_task_wdt_config_t cfg = {
-      .timeout_ms = WDT_TIMEOUT * 1000,
-      .idle_core_mask = 0,
-      .trigger_panic = true};
-
-  esp_task_wdt_init(&cfg);
-  esp_task_wdt_add(NULL);
-}
-
 enum LedState
 {
   LED_LOW,
   LED_MID,
   LED_HIGH
 };
-
 LedState co2LedState = LED_LOW;
 
 ////////////////////////////////////////////////////////////
-// SENSOR STATE
+// SENSOR STATUS
 ////////////////////////////////////////////////////////////
+
 struct SensorStatus
 {
   bool present = false;
   bool initialized = false;
 };
-
-SensorStatus shtStat;
-SensorStatus bmpStat;
-SensorStatus tslStat;
-SensorStatus scdStat;
+SensorStatus shtStat, bmpStat, tslStat, scdStat;
 
 bool i2cDevices[128] = {false};
 
@@ -225,14 +196,12 @@ struct AggMean
     count = 0;
   }
 };
-
 struct AggMinMax
 {
   float sum = 0;
-  float min = 100000;
-  float max = -100000;
+  float min = 1e6;
+  float max = -1e6;
   uint32_t count = 0;
-
   void add(float v)
   {
     sum += v;
@@ -242,177 +211,43 @@ struct AggMinMax
     if (v > max)
       max = v;
   }
-
   float mean() const { return count ? sum / count : NAN; }
-
   void reset()
   {
     sum = 0;
-    min = 100000;
-    max = -100000;
+    min = 1e6;
+    max = -1e6;
     count = 0;
   }
 };
 
-AggMinMax tempAgg;
-AggMinMax humAgg;
-AggMean presAgg;
-AggMean luxAgg;
-AggMean co2Agg;
+AggMinMax tempAgg, humAgg;
+AggMean presAgg, luxAgg, co2Agg;
 
 ////////////////////////////////////////////////////////////
-// I2C SCAN
-////////////////////////////////////////////////////////////
-
-bool isKnownAddr(uint8_t addr)
-{
-  return addr == 0x44 || addr == 0x76 || addr == 0x77 || addr == 0x29 || addr == 0x62;
-}
-
-void scanI2C()
-{
-
-  Serial.println("\n========== I2C SCAN ==========");
-
-  uint8_t found = 0;
-
-  for (uint8_t addr = 1; addr < 127; addr++)
-  {
-
-    Wire.beginTransmission(addr);
-    uint8_t err = Wire.endTransmission();
-
-    if (err == 0)
-    {
-
-      i2cDevices[addr] = true;
-
-      Serial.printf("[I2C] 0x%02X  %s\n",
-                    addr,
-                    isKnownAddr(addr) ? "KNOWN" : "UNKNOWN ⚠");
-
-      found++;
-    }
-    else if (err == 4)
-    {
-      Serial.printf("[I2C] 0x%02X ERROR\n", addr);
-    }
-  }
-
-  Serial.printf("[I2C] Total: %u\n", found);
-  Serial.println("===============================\n");
-}
-
-////////////////////////////////////////////////////////////
-// SENSOR DETECT
-////////////////////////////////////////////////////////////
-
-void detectSensors()
-{
-
-  Serial.println("[BOOT] Detecting sensors...");
-
-  // SHT
-  shtStat.present = i2cDevices[0x44];
-  if (shtStat.present)
-  {
-    Serial.print("[SHT4x] init... ");
-    shtStat.initialized = sht4.begin(&Wire);
-    Serial.println(shtStat.initialized ? "OK" : "FAIL");
-  }
-
-  // BMP
-  uint8_t bmpAddr = 0;
-
-  if (i2cDevices[0x76])
-    bmpAddr = 0x76;
-  else if (i2cDevices[0x77])
-    bmpAddr = 0x77;
-
-  bmpStat.present = bmpAddr != 0;
-
-  if (bmpStat.present)
-  {
-    Serial.print("[BMP280] init... ");
-    bmpStat.initialized = bmp.begin(bmpAddr);
-    Serial.println(bmpStat.initialized ? "OK" : "FAIL");
-  }
-
-  // TSL
-  tslStat.present = i2cDevices[0x29];
-  if (tslStat.present)
-  {
-    Serial.print("[TSL2591] init... ");
-    tslStat.initialized = tsl.begin();
-
-    if (tslStat.initialized)
-    {
-      tsl.setGain(TSL2591_GAIN_MED);
-      tsl.setTiming(TSL2591_INTEGRATIONTIME_100MS);
-    }
-
-    Serial.println(tslStat.initialized ? "OK" : "FAIL");
-  }
-
-  // SDC40
-  scdStat.present = i2cDevices[0x62]; // SCD4x address
-
-  if (scdStat.present)
-  {
-    Serial.print("[SCD4x] init... ");
-
-    if (scd4.begin())
-    {
-      scdStat.initialized = true;
-
-      scd4.startPeriodicMeasurement(); // IMPORTANT
-
-      Serial.println("OK");
-    }
-    else
-    {
-      Serial.println("FAIL");
-    }
-  }
-
-  Serial.println();
-}
-
-void setupLD1020()
-{
-  pinMode(PIN_LD1020, INPUT); // LD1020 output is digital high on motion
-  ld1020.present = true;      // mark as present
-  ld1020.motion = digitalRead(PIN_LD1020);
-  ld1020.lastMotion = ld1020.motion;
-
-  Serial.println("[LD1020] initialized on GPIO5");
-}
-
-////////////////////////////////////////////////////////////
-// FILTER CORE
+// FILTERS
 ////////////////////////////////////////////////////////////
 
 struct EMA
 {
-  float tau; // time constant [s]
-  float value;
-
+  float tau, value;
   EMA(float tau_sec) : tau(tau_sec), value(NAN) {}
-
   float update(float v, float dt)
   {
-    const float a = dt / (tau + dt);
-
+    float a = dt / (tau + dt);
     if (isnan(value))
       value = v;
     else
       value += a * (v - value);
-
     return value;
   }
 };
 
-// ---------- history helper ----------
+EMA tempLPF(10.0f), humLPF(10.0f), luxLPF(5.0f), co2LPF(5.0f);
+EMA tempGradLPF(120.0f), humGradLPF(120.0f), co2GradLPF(180.0f);
+
+float tempHist[3] = {NAN, NAN, NAN}, humHist[3] = {NAN, NAN, NAN}, co2Hist[3] = {NAN, NAN, NAN};
+
 inline void push3(float *h, float v)
 {
   h[0] = h[1];
@@ -421,104 +256,171 @@ inline void push3(float *h, float v)
 }
 
 ////////////////////////////////////////////////////////////
-// FILTER INSTANCES
+// FUNCTION DECLARATIONS
 ////////////////////////////////////////////////////////////
 
-// signal smoothing
-EMA tempLPF(10.0f);
-EMA humLPF(10.0f);
-EMA luxLPF(5.0f);
-EMA co2LPF(20.0f);
-
-// gradient smoothing
-EMA tempGradLPF(120.0f);
-EMA humGradLPF(120.0f);
-EMA co2GradLPF(180.0f);
-
-// derivative history buffers
-float tempHist[3] = {NAN, NAN, NAN};
-float humHist[3] = {NAN, NAN, NAN};
-float co2Hist[3] = {NAN, NAN, NAN};
+void setupWDT();
+void scanI2C();
+bool isKnownAddr(uint8_t addr);
+void detectSensors();
+void setupLD1020();
+void setupAM312();
+void readFastSensors();
+void readSCD40();
+void readSensors();
+void printSystemInfo();
+void wifiWatchdog();
+void connectWiFi();
+void setupTime();
+void updateLED();
+void mqttSendCSV(unsigned long ts, const char *sensor, const char *metric, float value, bool retained = false);
+void publishAgg();
 
 ////////////////////////////////////////////////////////////
-// FAST SENSORS
+// IMPLEMENTATION
 ////////////////////////////////////////////////////////////
+
+void setupWDT()
+{
+  esp_task_wdt_config_t cfg = {.timeout_ms = WDT_TIMEOUT * 1000, .idle_core_mask = 0, .trigger_panic = true};
+  esp_task_wdt_init(&cfg);
+  esp_task_wdt_add(NULL);
+}
+
+bool isKnownAddr(uint8_t addr) { return addr == 0x44 || addr == 0x76 || addr == 0x77 || addr == 0x29 || addr == 0x62; }
+
+void scanI2C()
+{
+  Serial.println("\n========== I2C SCAN ==========");
+  uint8_t found = 0;
+  for (uint8_t addr = 1; addr < 127; addr++)
+  {
+    Wire.beginTransmission(addr);
+    uint8_t err = Wire.endTransmission();
+    if (err == 0)
+    {
+      i2cDevices[addr] = true;
+      Serial.printf("[I2C] 0x%02X  %s\n", addr, isKnownAddr(addr) ? "KNOWN" : "UNKNOWN ⚠");
+      found++;
+    }
+    else if (err == 4)
+    {
+      Serial.printf("[I2C] 0x%02X ERROR\n", addr);
+    }
+  }
+  Serial.printf("[I2C] Total: %u\n", found);
+  Serial.println("===============================\n");
+}
+
+void detectSensors()
+{
+  Serial.println("[BOOT] Detecting sensors...");
+  shtStat.present = i2cDevices[0x44];
+  if (shtStat.present)
+  {
+    shtStat.initialized = sht4.begin(&Wire);
+    Serial.printf("[SHT4x] init... %s\n", shtStat.initialized ? "OK" : "FAIL");
+  }
+  uint8_t bmpAddr = i2cDevices[0x76] ? 0x76 : (i2cDevices[0x77] ? 0x77 : 0);
+  bmpStat.present = bmpAddr != 0;
+  if (bmpStat.present)
+  {
+    bmpStat.initialized = bmp.begin(bmpAddr);
+    Serial.printf("[BMP280] init... %s\n", bmpStat.initialized ? "OK" : "FAIL");
+  }
+  tslStat.present = i2cDevices[0x29];
+  if (tslStat.present)
+  {
+    tslStat.initialized = tsl.begin();
+    if (tslStat.initialized)
+    {
+      tsl.setGain(TSL2591_GAIN_MED);
+      tsl.setTiming(TSL2591_INTEGRATIONTIME_100MS);
+    }
+    Serial.printf("[TSL2591] init... %s\n", tslStat.initialized ? "OK" : "FAIL");
+  }
+  scdStat.present = i2cDevices[0x62];
+  if (scdStat.present)
+  {
+    if (scd4.begin())
+    {
+      scdStat.initialized = true;
+      scd4.startPeriodicMeasurement();
+      Serial.println("[SCD4x] init... OK");
+    }
+    else
+      Serial.println("[SCD4x] init... FAIL");
+  }
+}
+
+void setupLD1020()
+{
+  pinMode(PIN_LD1020, INPUT);
+  ld1020.present = true;
+  ld1020.motion = digitalRead(PIN_LD1020);
+  ld1020.lastMotion = ld1020.motion;
+  Serial.println("[LD1020] initialized on GPIO5");
+}
+void setupAM312()
+{
+  pinMode(PIN_AM312, INPUT);
+  am312.motion = digitalRead(PIN_AM312);
+  am312.lastMotion = am312.motion;
+  Serial.println("[AM312] initialized on GPIO19");
+}
 
 void readFastSensors()
 {
   const float dt = SAMPLE_INTERVAL / 1000.0f;
-
-  // ---------- LD1020 ----------
   if (ld1020.present)
   {
     ld1020.motion = digitalRead(PIN_LD1020);
     ld1020Agg.add(ld1020.motion);
-
-    // Track last motion timestamp
     if (ld1020.motion)
-    {
-      lastMotionTs = millis();
-    }
-
-    // Optional: detect rising edge
+      ld1020.lastMotionTs = millis();
     if (ld1020.motion && !ld1020.lastMotion)
-    {
       Serial.println("[LD1020] motion detected!");
-    }
-
     ld1020.lastMotion = ld1020.motion;
   }
-
-  // ---------- SHT4x ----------
+  if (am312.present)
+  {
+    am312.motion = digitalRead(PIN_AM312);
+    am312Agg.add(am312.motion);
+    if (am312.motion)
+      am312.lastMotionTs = millis();
+    if (am312.motion && !am312.lastMotion)
+      Serial.println("[AM312] motion detected!");
+    am312.lastMotion = am312.motion;
+  }
   if (shtStat.initialized)
   {
     sensors_event_t h, t;
-
     if (sht4.getEvent(&h, &t))
     {
       temp = t.temperature;
       hum = h.relative_humidity;
-
       tempSmooth = tempLPF.update(temp, dt);
       humSmooth = humLPF.update(hum, dt);
-
       push3(tempHist, tempSmooth);
       push3(humHist, humSmooth);
-
-      // central derivative (low noise)
       if (!isnan(tempHist[0]))
-      {
-        float g = (tempHist[2] - tempHist[0]) / (2.0f * dt);
-        tempGrad = tempGradLPF.update(g, dt);
-      }
-
+        tempGrad = tempGradLPF.update((tempHist[2] - tempHist[0]) / (2.0f * dt), dt);
       if (!isnan(humHist[0]))
-      {
-        float g = (humHist[2] - humHist[0]) / (2.0f * dt);
-        humGrad = humGradLPF.update(g, dt);
-      }
-
+        humGrad = humGradLPF.update((humHist[2] - humHist[0]) / (2.0f * dt), dt);
       tempAgg.add(tempSmooth);
       humAgg.add(humSmooth);
     }
   }
-
-  // ---------- BMP280 ----------
   if (bmpStat.initialized)
   {
     pres = bmp.readPressure() / 100.0f;
     presAgg.add(pres);
   }
-
-  // ---------- TSL2591 ----------
   if (tslStat.initialized)
   {
     sensors_event_t light;
     tsl.getEvent(&light);
-
-    if (!isnan(light.light) &&
-        light.light > 0 &&
-        light.light < 200000)
+    if (!isnan(light.light) && light.light > 0 && light.light < 200000)
     {
       lux = luxLPF.update(light.light, dt);
       luxAgg.add(lux);
@@ -526,63 +428,56 @@ void readFastSensors()
   }
 }
 
-////////////////////////////////////////////////////////////
-// SCD40 CO2 SENSOR
-////////////////////////////////////////////////////////////
-
 void readSCD40()
 {
-  static uint32_t lastSample = 0;
-  static uint32_t lastTs = 0;
-
+  static uint32_t lastSCDSample = 0, lastTs = 0;
   uint32_t now = millis();
 
   if (!scdStat.initialized)
     return;
 
-  if (now - lastSample < SAMPLE_INTERVAL_SCD40)
+  if (now - lastSCDSample < SAMPLE_INTERVAL_SCD40)
     return;
 
-  lastSample = now;
+  lastSCDSample = now;
 
+  // Attempt measurement
   if (!scd4.readMeasurement())
+  {
+    co2 = NAN;
+    co2Smooth = NAN;
+    co2Grad = NAN;
+    lastTs = now;
     return;
+  }
 
   float newCO2 = scd4.getCO2();
-
   if (newCO2 <= 0 || newCO2 > 10000)
+  {
+    co2 = NAN;
+    co2Smooth = NAN;
+    co2Grad = NAN;
+    lastTs = now;
     return;
+  }
 
-  float dt =
-      (lastTs == 0)
-          ? SAMPLE_INTERVAL_SCD40 / 1000.0f
-          : (now - lastTs) / 1000.0f;
-
+  // Valid reading
+  float dt = (lastTs == 0) ? SAMPLE_INTERVAL_SCD40 / 1000.0f : (now - lastTs) / 1000.0f;
   lastTs = now;
 
   co2 = newCO2;
-
   co2Smooth = co2LPF.update(co2, dt);
-
+  co2Agg.add(co2Smooth);
   push3(co2Hist, co2Smooth);
 
-  // central derivative
   if (!isnan(co2Hist[0]))
-  {
-    float g = (co2Hist[2] - co2Hist[0]) / (2.0f * dt);
-    co2Grad = co2GradLPF.update(g, dt);
-  }
+    co2Grad = co2GradLPF.update((co2Hist[2] - co2Hist[0]) / (2.0f * dt), dt);
 }
-
-////////////////////////////////////////////////////////////
-// READ ALL SENSORS
-////////////////////////////////////////////////////////////
 
 void readSensors()
 {
   readFastSensors();
   readSCD40();
-  Serial.println(digitalRead(PIN_LD1020));
 }
 
 ////////////////////////////////////////////////////////////
@@ -721,7 +616,7 @@ void updateLED()
   // MOTION GATE
   // LED OFF if motion is too old
   ////////////////////////////////////////////////////////////
-
+  uint32_t lastMotionTs = max(ld1020.lastMotionTs, am312.lastMotionTs);
   if (lastMotionTs == 0 || (now - lastMotionTs) > MOTION_HOLD_MS)
   {
     ledcWrite(PIN_G, 0);
@@ -852,7 +747,7 @@ void mqttSendCSV(
     const char *sensor,
     const char *metric,
     float value,
-    bool retained = false)
+    bool retained)
 {
   if (!mqtt.connected())
     return;
@@ -971,6 +866,11 @@ void publishAgg()
     mqttSendCSV(ts_center, "ld1020", "motion_fraction",
                 ld1020Agg.fraction());
 
+  // ---------- AM312 motion ----------
+  if (am312Agg.totalCount > 0)
+    mqttSendCSV(ts_center, "am312", "motion_fraction",
+                am312Agg.fraction());
+
   //--------------------------------------------------------
   // RESET AGGREGATORS
   //--------------------------------------------------------
@@ -979,6 +879,7 @@ void publishAgg()
   presAgg.reset();
   luxAgg.reset();
   ld1020Agg.reset();
+  am312Agg.reset();
   co2Agg.reset(); // IMPORTANT for gradient validity
 
   //--------------------------------------------------------
@@ -1015,10 +916,10 @@ void connectMQTT()
   if (mqtt.connected())
     return;
 
-  if (millis() - lastTry < 5000)
+  if (millis() - lastMqttTry < 5000)
     return;
 
-  lastTry = millis();
+  lastMqttTry = millis();
 
   Serial.print("MQTT connecting... ");
 
@@ -1074,21 +975,22 @@ void connectMQTT()
 ////////////////////////////////////////////////////////////
 // WEB JSON
 ////////////////////////////////////////////////////////////
+
 String jsonData()
 {
-
   auto safe = [](float v)
   {
     return isnan(v) || isinf(v) ? 0.0f : v;
   };
 
-  char buf[1024];
+  char buf[1280]; // increased size for additional field
+
   snprintf(buf, sizeof(buf),
            "{\"temp\":%.2f,\"hum\":%.2f,\"pres\":%.2f,\"lux\":%.2f,"
            "\"temp_smooth\":%.2f,\"hum_smooth\":%.2f,"
            "\"temp_grad\":%.3f,\"hum_grad\":%.3f,"
            "\"co2\":%.0f,\"co2_smooth\":%.0f,\"co2_grad\":%.3f,"
-           "\"ld1020_motion\":%d,"
+           "\"ld1020_motion\":%d,\"am312_motion\":%d,"
            "\"wifi_rssi\":%d,\"wifi_ch\":%d,"
            "\"heap\":%u,\"heap_min\":%u,"
            "\"uptime\":%lu,\"ip\":\"%s\",\"mqtt\":%s}",
@@ -1097,6 +999,7 @@ String jsonData()
            safe(tempGrad), safe(humGrad),
            safe(co2), safe(co2Smooth), safe(co2Grad),
            ld1020.motion ? 1 : 0,
+           am312.motion ? 1 : 0,
            WiFi.RSSI(), WiFi.channel(),
            ESP.getFreeHeap(), ESP.getMinFreeHeap(),
            millis() / 1000,
