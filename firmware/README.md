@@ -61,8 +61,9 @@ make upload-ota # wifi
 
 ### HARDWARE
 
-## BOARD
-ESP32 ($5)
+## BOARDs
+# ESP32 dev 
+($5)
 5VIN 3VOUT
 decoupling output: 22 µF 
 https://documentation.espressif.com/esp32-wroom-32_datasheet_en.pdf
@@ -105,40 +106,45 @@ There are three mutually exclusive ways to provide power to the board:
 Use one and only one of the options above, otherwise the board and/or the power supply source can be damaged.
 
 
+# ESP32-C3 Super Mini
+($2)
+5VIN 3VOUT
+
+
 ## SENSORS
 
-AM312 Mini Pyroelectric PIR 
+# AM312 Mini Pyroelectric PIR 
 3-12VIN
 < .05 mA
 https://www.image.micros.com.pl/_dane_techniczne_auto/cz%20am312.pdf
 HT30 linear voltage regulator
 
-LD1020 Human Microwave Radar ($2)   
+# LD1020 Human Microwave Radar ($2)   
 5VIN 3VOUT
 < .05 mA
 decoupling input: 10 µF + 100 nF 
 https://rajguruelectronics.com/Product/21153/170624162821.pdf
 
-SHT40 Temperature, Humidity ($2)
+# SHT40 Temperature, Humidity ($2)
 3V
 < .6 mA
 decoupling input: 100 nF,optional 1 µF if cable >10 cm 
 https://sensirion.com/products/catalog/SHT40
 
-SCD40 CO2 ($20)
+# SCD40 CO2 ($20)
 3V
 < 100 mA
 decoupling input: 1 µF + 100 nF
 https://sensirion.com/products/catalog/SCD40
 
 
-BMP280 Pressure ($2)
+# BMP280 Pressure ($2)
 3V
 < .7 mA
 decoupling input: 100 nF
 https://www.bosch-sensortec.com/media/boschsensortec/downloads/datasheets/bst-bmp280-ds001.pdf
 
-TSL2591 Light ($4)
+# TSL2591 Light ($4)
 3V
 < .6 mA
 decoupling input: 100 nF
