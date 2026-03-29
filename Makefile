@@ -11,7 +11,7 @@ compile:
 upload:
 	echo "Uploading to $(PORT) at $(BAUDRATE) baud..."
 	arduino-cli upload -p $(PORT)  --fqbn $(BOARD) --upload-property upload.speed=$(UPLOADSPEED) $(SKETCH)
-	arduino-cli monitor -p /dev/ttyUSB0 -c baudrate=$(BAUDRATE)
+	arduino-cli monitor -p $(PORT)-c baudrate=$(BAUDRATE)
 
 upload-ota:
 	echo "Uploading to $(OTA_IP)  ..."

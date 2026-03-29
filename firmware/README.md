@@ -26,14 +26,13 @@ arduino-cli core update-index
 
 ```bash
 arduino-cli core install esp32:esp32
-arduino-cli lib install \
-arduino-cli lib install "AsyncTCP" || true
-arduino-cli lib install "ESP Async WebServer" || true
-arduino-cli lib install "PubSubClient" || true
-arduino-cli lib install "Adafruit SHT4x Library" || true
-arduino-cli lib install "Adafruit BMP280 Library" || true
-arduino-cli lib install "Adafruit TSL2591 Library" || true
-arduino-cli lib install "SparkFun SCD4x Arduino Library" || true
+arduino-cli lib install "AsyncTCP"
+arduino-cli lib install "ESP Async WebServer"
+arduino-cli lib install "PubSubClient"
+arduino-cli lib install "Adafruit SHT4x Library"
+arduino-cli lib install "Adafruit BMP280 Library"
+arduino-cli lib install "Adafruit TSL2591 Library"
+arduino-cli lib install "SparkFun SCD4x Arduino Library"
 ```
 ---
 ## Compile firmware
@@ -65,6 +64,7 @@ make upload-ota # wifi
 ## BOARD
 ESP32 ($5)
 5VIN 3VOUT
+decoupling output: 22 µF 
 https://documentation.espressif.com/esp32-wroom-32_datasheet_en.pdf
 
 
@@ -108,21 +108,40 @@ Use one and only one of the options above, otherwise the board and/or the power 
 ## SENSORS
 LD1020 Human Microwave Radar ($2)   
 5VIN 3VOUT
+decoupling input: 10 µF + 100 nF 
 https://rajguruelectronics.com/Product/21153/170624162821.pdf
 
 SHT40 Temperature, Humidity ($2)
 3V
+decoupling input: 4.7 µF + 100 nF 
 https://sensirion.com/products/catalog/SHT40
 
 SCD40 CO2 ($20)
 3V
+decoupling input: 1 µF + 100 nF
 https://sensirion.com/products/catalog/SCD40
 
 BMP280 Pressure ($2)
 3V
+decoupling input: 100 nF
 https://www.bosch-sensortec.com/media/boschsensortec/downloads/datasheets/bst-bmp280-ds001.pdf
 
 TSL2591 Light ($4)
 3V
+decoupling input: 100 nF
 https://cdn-shop.adafruit.com/datasheets/TSL25911_Datasheet_EN_v1.pdf
 
+## WIRING
+I2C:
+GPIO21 → SDA
+GPIO22 → SCL
+
+Power:
+5V → LD1020 VIN
+3V3 → all other sensors
+
+I2C pullups on 2 sensors only 
+(measure SDA-SCL resistance: 3-10 kΩ )
+
+place ESP32 in the middle (short wires)
+keep LD1020 sensor and wire away from I2C (RF noise)

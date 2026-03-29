@@ -1,8 +1,8 @@
 
 void startWeb()
 {
-    server.on("/", HTTP_GET, [](AsyncWebServerRequest *req)
-              {
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *req)
+            {
 
         const char page[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
@@ -66,6 +66,10 @@ canvas { width:100%; }
     <canvas id="luxChart" height="180"></canvas>
   </div>
 
+<div class="card">
+  <div class="stat">LD1020 Motion: <span id="ld1020_val">--</span></div>
+  <canvas id="ld1020Chart" height="180"></canvas>
+</div>
 
 </div>
 
@@ -83,6 +87,7 @@ const co2El=document.getElementById("co2_val")
 const co2gradEl = document.getElementById("co2grad_val");
 const tgradEl=document.getElementById("tgrad_val")
 const hgradEl=document.getElementById("hgrad_val")
+const ld1020El = document.getElementById("ld1020_val");
 const sysEl=document.getElementById("sys")
 const UPDATE_INTERVAL=5000 // ms, should match SAMPLE_INTERVAL_SCD40 in firmware
 const HISTORY_DURATION=60*60*1000 // ms, 10 hours
@@ -136,6 +141,44 @@ const co2Chart=chart("co2Chart","#0dff00",400,1600)
 const co2gradChart = chart("co2gradChart", "#aaffaa", -200, 100);
 const tgradChart=chart("tgradChart","#ffaaaa",-5,5)
 const hgradChart=chart("hgradChart","#00eeff",-10,10)
+// const ld1020Chart = chart("ld1020Chart", "#ffaa00", 0, 1); // binary chart 0/1
+
+const ld1020Chart = new Chart(
+  document.getElementById("ld1020Chart"),
+  {
+    type: "line",
+    data: {
+      labels: [],
+      datasets: [
+        { 
+          data: [], 
+          borderColor: "#ffaa00", 
+          borderWidth: 1.5, 
+          pointRadius: 0, 
+          stepped: true // <- step style
+        },
+        { 
+          data: [], 
+          borderColor: "#888888", 
+          borderWidth: 1, 
+          pointRadius: 0, 
+          borderDash:[5,5], 
+          label:"zero", 
+          fill:false 
+        }
+      ]
+    },
+    options: {
+      responsive:false,
+      animation:false,
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{display:false},
+        y:{display:true, min:0, max:1}
+      }
+    }
+  }
+);
 
 
 async function update(){
@@ -156,6 +199,7 @@ tempEl.innerText = j.temp.toFixed(2);
 humEl.innerText = j.hum.toFixed(2);
 presEl.innerText = j.pres.toFixed(1);
 luxEl.innerText = j.lux.toFixed(1);
+ld1020El.innerText = j.ld1020_motion ? "Yes" : "No";
 
 
   push(tempChart,j.temp)
@@ -163,6 +207,7 @@ luxEl.innerText = j.lux.toFixed(1);
   push(presChart,j.pres)
   push(luxChart,j.lux)
   push(co2Chart,j.co2)
+  push(ld1020Chart, j.ld1020_motion ? 1 : 0);
 
 push(co2gradChart, co2g);
 push(tgradChart, tg);
@@ -185,9 +230,9 @@ setInterval(update,UPDATE_INTERVAL)
 
         req->send_P(200,"text/html",page); });
 
-    server.on("/data", HTTP_GET, [](AsyncWebServerRequest *req)
-              { req->send(200, "application/json", jsonData()); });
+  server.on("/data", HTTP_GET, [](AsyncWebServerRequest *req)
+            { req->send(200, "application/json", jsonData()); });
 
-    server.begin();
-    Serial.println("[WEB] started");
+  server.begin();
+  Serial.println("[WEB] started");
 }
