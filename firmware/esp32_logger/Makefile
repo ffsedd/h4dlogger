@@ -1,6 +1,6 @@
 BOARD=esp32:esp32:esp32
 PORT=/dev/ttyUSB0
-SKETCH=firmware/esp32_logger
+SKETCH=esp32_logger.ino
 BAUDRATE=115200
 UPLOADSPEED=460800
 OTA_IP=10.11.12.125   # ESP32 IP on your Wi-Fi network
