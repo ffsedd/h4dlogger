@@ -109,31 +109,38 @@ Use one and only one of the options above, otherwise the board and/or the power 
 
 AM312 Mini Pyroelectric PIR 
 3-12VIN
+< .05 mA
 https://www.image.micros.com.pl/_dane_techniczne_auto/cz%20am312.pdf
 HT30 linear voltage regulator
 
 LD1020 Human Microwave Radar ($2)   
 5VIN 3VOUT
+< .05 mA
 decoupling input: 10 µF + 100 nF 
 https://rajguruelectronics.com/Product/21153/170624162821.pdf
 
 SHT40 Temperature, Humidity ($2)
 3V
-decoupling input: 4.7 µF + 100 nF 
+< .6 mA
+decoupling input: 100 nF,optional 1 µF if cable >10 cm 
 https://sensirion.com/products/catalog/SHT40
 
 SCD40 CO2 ($20)
 3V
+< 100 mA
 decoupling input: 1 µF + 100 nF
 https://sensirion.com/products/catalog/SCD40
 
+
 BMP280 Pressure ($2)
 3V
+< .7 mA
 decoupling input: 100 nF
 https://www.bosch-sensortec.com/media/boschsensortec/downloads/datasheets/bst-bmp280-ds001.pdf
 
 TSL2591 Light ($4)
 3V
+< .6 mA
 decoupling input: 100 nF
 https://cdn-shop.adafruit.com/datasheets/TSL25911_Datasheet_EN_v1.pdf
 

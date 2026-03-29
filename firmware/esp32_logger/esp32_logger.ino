@@ -29,11 +29,16 @@
 #define NTP_SERVER "tak.cesnet.cz"
 #define TZ_INFO "CET-1CEST,M3.5.0,M10.5.0/3"
 
-#define SAMPLE_INTERVAL 500        // 0.5 s
-#define SAMPLE_INTERVAL_SCD40 5000 // 5 s
-#define AGG_INTERVAL 300000        // 5 min
+#define SAMPLE_INTERVAL 500         // 0.5 s
+#define SAMPLE_INTERVAL_SCD40 10000 // 10 s
+#define AGG_INTERVAL 300000         // 5 min
 #define FILTER_N 5
-#define SERIAL_PRINT_VALUES 1
+
+#define LOG_VALUES 0
+
+#define LOG_MOTION_EVENTS 0
+#define LOG_MQTT_EVENTS 0
+#define LOG_LED_EVENTS 0
 
 ////////////////////////////////////////////////////////////
 // UTILS: RUNNING MEAN
@@ -379,7 +384,7 @@ void readFastSensors()
     if (ld1020.motion)
       ld1020.lastMotionTs = millis();
     if (ld1020.motion && !ld1020.lastMotion)
-      Serial.println("[LD1020] motion detected!");
+      Serial.println("[LD1020] motion detected! =====================");
     ld1020.lastMotion = ld1020.motion;
   }
   if (am312.present)
@@ -389,7 +394,7 @@ void readFastSensors()
     if (am312.motion)
       am312.lastMotionTs = millis();
     if (am312.motion && !am312.lastMotion)
-      Serial.println("[AM312] motion detected!");
+      Serial.println("[AM312] motion detected! --------------------");
     am312.lastMotion = am312.motion;
   }
   if (shtStat.initialized)
@@ -426,6 +431,9 @@ void readFastSensors()
       luxAgg.add(lux);
     }
   }
+
+  if (LOG_VALUES)
+    Serial.printf("[FastSensors] %.2f C | %.2f %% | %.1f hPa | %.1f lx\n", temp, hum, pres, lux);
 }
 
 void readSCD40()
@@ -472,6 +480,9 @@ void readSCD40()
 
   if (!isnan(co2Hist[0]))
     co2Grad = co2GradLPF.update((co2Hist[2] - co2Hist[0]) / (2.0f * dt), dt);
+
+  if (LOG_VALUES)
+    Serial.printf("[CO2] %.1f | smooth: %.1f | grad: %.3f ppm/s\n", co2, co2Smooth, co2Grad);
 }
 
 void readSensors()
@@ -721,7 +732,7 @@ void updateLED()
   // RATE-LIMITED LOGGING
   ////////////////////////////////////////////////////////////
 
-  if (SERIAL_PRINT_VALUES)
+  if (LOG_LED_EVENTS)
   {
     static uint32_t lastLog = 0;
 
@@ -891,7 +902,7 @@ void publishAgg()
   //--------------------------------------------------------
   // ---- SERIAL PRINT ALL ----
   //--------------------------------------------------------
-  if (SERIAL_PRINT_VALUES)
+  if (LOG_MQTT_EVENTS)
   {
     Serial.printf("[MQTT] sht40 temp=%.2f temp_smooth=%.2f temp_grad=%.3f\n",
                   temp, tempSmooth, tempGrad);
