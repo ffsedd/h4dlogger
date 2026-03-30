@@ -36,8 +36,9 @@ constexpr uint8_t CH_Y = 2;
 // Motion sensors
 // ======================
 constexpr gpio_num_t PIN_LD1020 = GPIO_NUM_1;
+bool LD1020_PRESENT = false;
 constexpr gpio_num_t PIN_AM312 = GPIO_NUM_10;
-
+bool AM312_PRESENT = true;
 // ======================
 // I2C
 // ======================
@@ -47,9 +48,9 @@ constexpr gpio_num_t PIN_I2C_SCL = GPIO_NUM_6;
 #define NTP_SERVER "tak.cesnet.cz"
 #define TZ_INFO "CET-1CEST,M3.5.0,M10.5.0/3"
 
-#define SAMPLE_INTERVAL 500         // 0.5 s
+#define SAMPLE_INTERVAL 500     // 0.5 s
 #define SAMPLE_INTERVAL_SCD40 0 // disabled
-#define AGG_INTERVAL 300000         // 5 min
+#define AGG_INTERVAL 300000     // 5 min
 #define FILTER_N 5
 
 #define LOG_VALUES 0
@@ -58,11 +59,12 @@ constexpr gpio_num_t PIN_I2C_SCL = GPIO_NUM_6;
 #define LOG_MQTT_EVENTS 0
 #define LOG_LED_EVENTS 0
 
-void startWeb();  // in file web.ino
+void startWeb(); // in file web.ino
 
-struct WifiHotspots {  // in file "wifi_secrets.h"
-    const char* ssid;
-    const char* password;
+struct WifiHotspots
+{ // in file "wifi_secrets.h"
+  const char *ssid;
+  const char *password;
 };
 #include "wifi_secrets.h"
 
@@ -286,29 +288,28 @@ inline void push3(float *h, float v)
 // FUNCTION DECLARATIONS
 ////////////////////////////////////////////////////////////
 
-void scanI2C();
-bool isKnownAddr(uint8_t addr);
-void detectI2Csensors();
-void setupLD1020();
-void setupAM312();
-void readFastSensors();
-void readSCD40();
-void readSensors();
-void printSystemInfo();
-void wifiWatchdog();
-void connectWiFi();
-void setupTime();
+void scan_i2c_devices();
+bool is_known_i2c_addr(uint8_t addr);
+void init_i2c_sensors();
+void setup_LD1020();
+void setup_AM312();
+void read_fast_sensors();
+void read_SCD40();
+void read_sensors();
+void print_sysinfo();
+void wifi_watchdog();
+void sync_ntp_time();
 void updateLED();
 void mqttSendCSV(unsigned long ts, const char *sensor, const char *metric, float value, bool retained = false);
-void publishAgg();
+void publish_Agg_values();
 
 ////////////////////////////////////////////////////////////
 // IMPLEMENTATION
 ////////////////////////////////////////////////////////////
 
-bool isKnownAddr(uint8_t addr) { return addr == 0x44 || addr == 0x76 || addr == 0x77 || addr == 0x29 || addr == 0x62; }
+bool is_known_i2c_addr(uint8_t addr) { return addr == 0x44 || addr == 0x76 || addr == 0x77 || addr == 0x29 || addr == 0x62; }
 
-void scanI2C()
+void scan_i2c_devices()
 {
   Serial.println("\n========== I2C SCAN ==========");
   uint8_t found = 0;
@@ -319,7 +320,7 @@ void scanI2C()
     if (err == 0)
     {
       i2cDevices[addr] = true;
-      Serial.printf("[I2C] 0x%02X  %s\n", addr, isKnownAddr(addr) ? "KNOWN" : "UNKNOWN ⚠");
+      Serial.printf("[I2C] 0x%02X  %s\n", addr, is_known_i2c_addr(addr) ? "KNOWN" : "UNKNOWN ⚠");
       found++;
     }
     else if (err == 4)
@@ -331,7 +332,7 @@ void scanI2C()
   Serial.println("===============================\n");
 }
 
-void detectI2Csensors()
+void init_i2c_sensors()
 {
   Serial.println("[BOOT] Detecting sensors...");
   shtStat.present = i2cDevices[0x44];
@@ -390,23 +391,42 @@ void detectI2Csensors()
 //   ledcWrite(CH_G, 0);
 //   ledcWrite(CH_Y, 0);
 // }
-void setupLD1020()
+void setup_LD1020()
 {
-  pinMode(PIN_LD1020, INPUT);
-  ld1020.present = true;
-  ld1020.motion = digitalRead(PIN_LD1020);
-  ld1020.lastMotion = ld1020.motion;
-  Serial.printf("[LD1020] initialized on GPIO%d\n", PIN_LD1020);
+  if (LD1020_PRESENT)
+  {
+    pinMode(PIN_LD1020, INPUT);
+    ld1020.present = true;
+    ld1020.motion = digitalRead(PIN_LD1020);
+    ld1020.lastMotion = ld1020.motion;
+    Serial.printf("[LD1020] initialized on GPIO%d\n", PIN_LD1020);
+  }
+  else
+  {
+    ld1020.present = false;
+    ld1020.motion = false;
+    Serial.println("[LD1020] not present");
+  }
 }
-void setupAM312()
+void setup_AM312()
 {
-  pinMode(PIN_AM312, INPUT);
-  am312.motion = digitalRead(PIN_AM312);
-  am312.lastMotion = am312.motion;
-  Serial.printf("[AM312] initialized on GPIO%d\n", PIN_AM312);
+  if (AM312_PRESENT)
+  {
+    pinMode(PIN_AM312, INPUT);
+    am312.present = true;
+    am312.motion = digitalRead(PIN_AM312);
+    am312.lastMotion = am312.motion;
+    Serial.printf("[AM312] initialized on GPIO%d\n", PIN_AM312);
+  }
+  else
+  {
+    am312.present = false;
+    am312.motion = false;
+    Serial.println("[AM312] not present");
+  }
 }
 
-void readFastSensors()
+void read_fast_sensors()
 {
   const float dt = SAMPLE_INTERVAL / 1000.0f;
   if (ld1020.present)
@@ -468,7 +488,7 @@ void readFastSensors()
     Serial.printf("[FastSensors] %.2f C | %.2f %% | %.1f hPa | %.1f lx\n", temp, hum, pres, lux);
 }
 
-void readSCD40()
+void read_SCD40()
 {
   static uint32_t lastSCDSample = 0, lastTs = 0;
   uint32_t now = millis();
@@ -517,17 +537,17 @@ void readSCD40()
     Serial.printf("[CO2] %.1f | smooth: %.1f | grad: %.3f ppm/s\n", co2, co2Smooth, co2Grad);
 }
 
-void readSensors()
+void read_sensors()
 {
-  readFastSensors();
-  readSCD40();
+  read_fast_sensors();
+  read_SCD40();
 }
 
 ////////////////////////////////////////////////////////////
 // SYSTEM INFO
 ////////////////////////////////////////////////////////////
 
-void printSystemInfo()
+void print_sysinfo()
 {
 
   Serial.println("========== SYSTEM ==========");
@@ -567,7 +587,7 @@ void printSystemInfo()
 
 uint32_t wifiLostAt = 0;
 
-void wifiWatchdog()
+void wifi_watchdog()
 {
 
   if (WiFi.status() == WL_CONNECTED)
@@ -590,70 +610,68 @@ void wifiWatchdog()
 // WIFI
 ////////////////////////////////////////////////////////////
 
-
-
 // Return index of known network with strongest RSSI, or -1 if none
-int findBestNetwork()
+int find_best_wifi()
 {
-    int bestRSSI = -1000;
-    int bestIndex = -1;
-    int n = WiFi.scanNetworks();
-    for (int i = 0; i < n; i++)
-    {
-        String ssid = WiFi.SSID(i);
-        int rssi = WiFi.RSSI(i);
+  int bestRSSI = -1000;
+  int bestIndex = -1;
+  int n = WiFi.scanNetworks();
+  for (int i = 0; i < n; i++)
+  {
+    String ssid = WiFi.SSID(i);
+    int rssi = WiFi.RSSI(i);
 
-        for (int j = 0; j < sizeof(wifihotspots) / sizeof(wifihotspots[0]); j++)
-        {
-            if (ssid == wifihotspots[j].ssid && rssi > bestRSSI)
-            {
-                bestRSSI = rssi;
-                bestIndex = j;
-            }
-        }
+    for (int j = 0; j < sizeof(wifihotspots) / sizeof(wifihotspots[0]); j++)
+    {
+      if (ssid == wifihotspots[j].ssid && rssi > bestRSSI)
+      {
+        bestRSSI = rssi;
+        bestIndex = j;
+      }
     }
-    return bestIndex;
+  }
+  return bestIndex;
 }
 
 // Connect to best known network, optional timeout in ms
-bool connectBestNetwork(unsigned long timeout = 15000)
+bool connect_best_wifi(unsigned long timeout = 15000)
 {
-    int idx = findBestNetwork();
-    if (idx == -1)
+  int idx = find_best_wifi();
+  if (idx == -1)
+  {
+    Serial.println("No known network found");
+    return false;
+  }
+
+  WiFi.mode(WIFI_STA);
+
+  WiFi.begin(wifihotspots[idx].ssid, wifihotspots[idx].password);
+
+  Serial.print("Connecting to ");
+  Serial.println(wifihotspots[idx].ssid);
+
+  unsigned long start = millis();
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    delay(500);
+    Serial.print(WiFi.status());
+    if (millis() - start > timeout)
     {
-        Serial.println("No known network found");
-        return false;
+      Serial.println("\nConnection timed out");
+      return false;
     }
+  }
 
-    WiFi.mode(WIFI_STA);
-    
-    WiFi.begin(wifihotspots[idx].ssid, wifihotspots[idx].password);
-
-    Serial.print("Connecting to ");
-    Serial.println(wifihotspots[idx].ssid);
-
-    unsigned long start = millis();
-    while (WiFi.status() != WL_CONNECTED)
-    {
-        delay(500);
-        Serial.print(WiFi.status());
-        if (millis() - start > timeout)
-        {
-            Serial.println("\nConnection timed out");
-            return false;
-        }
-    }
-
-    Serial.println("\nConnected!");
-    Serial.print("IP Address: ");
-    Serial.println(WiFi.localIP());
-    return true;
+  Serial.println("\nConnected!");
+  Serial.print("IP Address: ");
+  Serial.println(WiFi.localIP());
+  return true;
 }
 ////////////////////////////////////////////////////////////
 // NTP
 ////////////////////////////////////////////////////////////
 
-void setupTime()
+void sync_ntp_time()
 {
 
   configTzTime(TZ_INFO, NTP_SERVER);
@@ -853,7 +871,7 @@ void mqttSendCSV(
 ////////////////////////////////////////////////////////////
 // PUBLISH AGGREGATED DATA
 ////////////////////////////////////////////////////////////
-void publishAgg()
+void publish_Agg_values()
 {
   if (!mqtt.connected())
     return;
@@ -982,7 +1000,7 @@ void publishAgg()
 ////////////////////////////////////////////////////////////
 // MQTT CONNECTION
 ////////////////////////////////////////////////////////////
-void connectMQTT()
+void connect_MQTT()
 {
   if (mqtt.connected())
     return;
@@ -1044,41 +1062,42 @@ void connectMQTT()
   }
 }
 ////////////////////////////////////////////////////////////
-// WEB JSON
+// WEB JSON - REALTIME STATUS ENDPOINT
 ////////////////////////////////////////////////////////////
 
 String jsonData()
 {
-    auto safe = [](float v) { return isnan(v) || isinf(v) ? 0.0f : v; };
+  auto safe = [](float v)
+  { return isnan(v) || isinf(v) ? 0.0f : v; };
 
-    char buf[1500]; // slightly larger for SSID
+  char buf[1500]; // slightly larger for SSID
 
-    snprintf(buf, sizeof(buf),
-             "{\"device\":\"%s\","
-             "\"ssid\":\"%s\","
-             "\"temp\":%.2f,\"hum\":%.2f,\"pres\":%.2f,\"lux\":%.2f,"
-             "\"temp_smooth\":%.2f,\"hum_smooth\":%.2f,"
-             "\"temp_grad\":%.3f,\"hum_grad\":%.3f,"
-             "\"co2\":%.0f,\"co2_smooth\":%.0f,\"co2_grad\":%.3f,"
-             "\"ld1020_motion\":%d,\"am312_motion\":%d,"
-             "\"wifi_rssi\":%d,\"wifi_ch\":%d,"
-             "\"heap\":%u,\"heap_min\":%u,"
-             "\"uptime\":%lu,\"ip\":\"%s\",\"mqtt\":%s}",
-             DEVICE_ID,
-             WiFi.SSID().c_str(), 
-             safe(temp), safe(hum), safe(pres), safe(lux),
-             safe(tempSmooth), safe(humSmooth),
-             safe(tempGrad), safe(humGrad),
-             safe(co2), safe(co2Smooth), safe(co2Grad),
-             ld1020.motion ? 1 : 0,
-             am312.motion ? 1 : 0,
-             WiFi.RSSI(), WiFi.channel(),
-             ESP.getFreeHeap(), ESP.getMinFreeHeap(),
-             millis() / 1000,
-             WiFi.localIP().toString().c_str(),
-             mqtt.connected() ? "true" : "false");
+  snprintf(buf, sizeof(buf),
+           "{\"device\":\"%s\","
+           "\"ssid\":\"%s\","
+           "\"temp\":%.2f,\"hum\":%.2f,\"pres\":%.2f,\"lux\":%.2f,"
+           "\"temp_smooth\":%.2f,\"hum_smooth\":%.2f,"
+           "\"temp_grad\":%.3f,\"hum_grad\":%.3f,"
+           "\"co2\":%.0f,\"co2_smooth\":%.0f,\"co2_grad\":%.3f,"
+           "\"ld1020_motion\":%d,\"am312_motion\":%d,"
+           "\"wifi_rssi\":%d,\"wifi_ch\":%d,"
+           "\"heap\":%u,\"heap_min\":%u,"
+           "\"uptime\":%lu,\"ip\":\"%s\",\"mqtt\":%s}",
+           DEVICE_ID,
+           WiFi.SSID().c_str(),
+           safe(temp), safe(hum), safe(pres), safe(lux),
+           safe(tempSmooth), safe(humSmooth),
+           safe(tempGrad), safe(humGrad),
+           safe(co2), safe(co2Smooth), safe(co2Grad),
+           ld1020.motion ? 1 : 0,
+           am312.motion ? 1 : 0,
+           WiFi.RSSI(), WiFi.channel(),
+           ESP.getFreeHeap(), ESP.getMinFreeHeap(),
+           millis() / 1000,
+           WiFi.localIP().toString().c_str(),
+           mqtt.connected() ? "true" : "false");
 
-    return String(buf);
+  return String(buf);
 }
 ////////////////////////////////////////////////////////////
 // OTA
@@ -1125,30 +1144,31 @@ void setup()
   Wire.setTimeOut(50);
 
   // LED output PWM
-  
+
   // setupLED();
 
   //~ connectWiFi();
-  
-  WiFi.mode(WIFI_STA);
-  connectBestNetwork(); // Try to connect on startup
-  
-  setupTime();
 
-  scanI2C();
+  WiFi.mode(WIFI_STA); // Important to avoid AP mode which causes Wi-Fi instability
 
-  detectI2Csensors();
+  connect_best_wifi(); // Try to connect on startup
 
-  setupLD1020();
-  setupAM312();
+  sync_ntp_time(); // NTP sync before MQTT to get correct timestamps
+
+  scan_i2c_devices(); // scan I2C bus and fill i2cDevices[]
+
+  init_i2c_sensors(); // initializes sensor objects and updates shtStat, bmpStat, tslStat, scdStat
+
+  setup_LD1020(); // initialize LD1020 motion sensor
+  setup_AM312();  // initialize AM312 motion sensor
 
   mqtt.setServer(MQTT_HOST, MQTT_PORT);
 
-  printSystemInfo();
+  print_sysinfo();
 
   startWeb();
-  
-  setupOTA();
+
+  setupOTA(); // flash firmware over wifi support
 }
 
 ////////////////////////////////////////////////////////////
@@ -1156,16 +1176,16 @@ void setup()
 ////////////////////////////////////////////////////////////
 void loop()
 {
-  wifiWatchdog();
+  wifi_watchdog();
 
-    if (WiFi.status() != WL_CONNECTED) {
-        Serial.println("Wi-Fi lost. Reconnecting...");
-        connectBestNetwork();
-}
-
+  if (WiFi.status() != WL_CONNECTED)
+  {
+    Serial.println("Wi-Fi lost. Reconnecting...");
+    connect_best_wifi();
+  }
 
   //~ connectWiFi();
-  connectMQTT();
+  connect_MQTT();
 
   mqtt.loop();
   ArduinoOTA.handle();
@@ -1176,14 +1196,14 @@ void loop()
   if (!otaInProgress && (now - lastSample >= SAMPLE_INTERVAL))
   {
     lastSample += SAMPLE_INTERVAL;
-    readSensors();
+    read_sensors();
   }
 
   // --- AGG ---
   if (!otaInProgress && (now - lastAgg > AGG_INTERVAL))
   {
     lastAgg = now;
-    publishAgg();
+    publish_Agg_values();
   }
 
   // --- LED RENDER (fast, every loop) ---
