@@ -90,9 +90,9 @@ const humChart = chart("humChart","#09f",20,80);
 const presChart = chart("presChart","#fc5",900,1100);
 const luxChart = chart("luxChart","#fff",0,500);
 const co2Chart = chart("co2Chart","#0f0",400,1600);
-const co2gradChart = chart("co2gradChart","#afa",-150,50);
-const tgradChart = chart("tgradChart","#faa",-3,1);
-const hgradChart = chart("hgradChart","#0ef",-5,2);
+const co2gradChart = chart("co2gradChart","#afa",-200,100);
+const tgradChart = chart("tgradChart","#faa",-5,5);
+const hgradChart = chart("hgradChart","#0ef",-10,10);
 const ld1020Chart = chart("ld1020Chart","#fa0",0,1);
 const am312Chart = chart("am312Chart","#f0f",0,1);
 

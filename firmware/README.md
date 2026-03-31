@@ -14,6 +14,12 @@ nano firmware/esp32_logger/wifi_secrets.h
 ```bash
 curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | sh
 sudo install -m 0755 bin/arduino-cli /usr/local/bin/arduino-cli
+
+# Platformio
+sudo apt install pipx
+pipx ensurepath
+pipx install platformio
+
 ```
 
 Initialize configuration:
