@@ -1,7 +1,8 @@
+
 void startWeb()
 {
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest *req)
-            {
+    server.on("/", HTTP_GET, [](AsyncWebServerRequest *req)
+              {
         const char page[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
@@ -21,64 +22,26 @@ canvas { width:100%; }
 </head>
 <body>
 
-<h1>ESP32 Kitchen Lab</h1>
-<div class="grid">
-
-  <div class="card">
-    <div class="stat">CO2: <span id="co2_val">--</span> ppm</div>
-    <canvas id="co2Chart" height="180"></canvas>
-  </div>
-
-  <div class="card">
-    <div class="stat">Temp: <span id="temp_val">--</span> °C</div>
-    <canvas id="tempChart" height="180"></canvas>
-  </div>
-
-  <div class="card">
-    <div class="stat">Humidity: <span id="hum_val">--</span> %</div>
-    <canvas id="humChart" height="180"></canvas>
-  </div>
-
-  <div class="card">
-    <div class="stat">dCO₂: <span id="co2grad_val">--</span> ppm/min</div>
-    <canvas id="co2gradChart" height="180"></canvas>
-  </div>
-
-  <div class="card">
-    <div class="stat">dT: <span id="tgrad_val">--</span> °C/min</div>
-    <canvas id="tgradChart" height="180"></canvas>
-  </div>
-
-  <div class="card">
-    <div class="stat">dRH: <span id="hgrad_val">--</span> %/min</div>
-    <canvas id="hgradChart" height="180"></canvas>
-  </div>
-
-  <div class="card">
-    <div class="stat">Pressure: <span id="pres_val">--</span> hPa</div>
-    <canvas id="presChart" height="180"></canvas>
-  </div>
-
-  <div class="card">
-    <div class="stat">Light: <span id="lux_val">--</span> lx</div>
-    <canvas id="luxChart" height="180"></canvas>
-  </div>
-
-  <div class="card">
-    <div class="stat">LD1020 Motion: <span id="ld1020_val">--</span></div>
-    <canvas id="ld1020Chart" height="180"></canvas>
-  </div>
-
-  <div class="card">
-    <div class="stat">AM312 Motion: <span id="am312_val">--</span></div>
-    <canvas id="am312Chart" height="180"></canvas>
-  </div>
-
-</div>
+<h1>ESP32 dlogger</h1>
 
 <div class="card sys">
-<b>System health</b><br>
+<b>System info</b><br>
+Device: <span id="device_id">--</span><br>
+SSID: <span id="wifi_ssid">--</span><br>
 <div id="sys"></div>
+</div>
+
+<div class="grid">
+  <div class="card"><div class="stat">CO2: <span id="co2_val">--</span> ppm</div><canvas id="co2Chart" height="180"></canvas></div>
+  <div class="card"><div class="stat">Temp: <span id="temp_val">--</span> °C</div><canvas id="tempChart" height="180"></canvas></div>
+  <div class="card"><div class="stat">Humidity: <span id="hum_val">--</span> %</div><canvas id="humChart" height="180"></canvas></div>
+  <div class="card"><div class="stat">dCO₂: <span id="co2grad_val">--</span> ppm/min</div><canvas id="co2gradChart" height="180"></canvas></div>
+  <div class="card"><div class="stat">dT: <span id="tgrad_val">--</span> °C/min</div><canvas id="tgradChart" height="180"></canvas></div>
+  <div class="card"><div class="stat">dRH: <span id="hgrad_val">--</span> %/min</div><canvas id="hgradChart" height="180"></canvas></div>
+  <div class="card"><div class="stat">Pressure: <span id="pres_val">--</span> hPa</div><canvas id="presChart" height="180"></canvas></div>
+  <div class="card"><div class="stat">Light: <span id="lux_val">--</span> lx</div><canvas id="luxChart" height="180"></canvas></div>
+  <div class="card"><div class="stat">LD1020 Motion: <span id="ld1020_val">--</span></div><canvas id="ld1020Chart" height="180"></canvas></div>
+  <div class="card"><div class="stat">AM312 Motion: <span id="am312_val">--</span></div><canvas id="am312Chart" height="180"></canvas></div>
 </div>
 
 <script>
@@ -92,33 +55,24 @@ const tgradEl = document.getElementById("tgrad_val");
 const hgradEl = document.getElementById("hgrad_val");
 const ld1020El = document.getElementById("ld1020_val");
 const am312El = document.getElementById("am312_val");
+const deviceEl = document.getElementById("device_id");
+const ssidEl = document.getElementById("wifi_ssid");
 const sysEl = document.getElementById("sys");
 
-const UPDATE_INTERVAL = 5000; // ms
-const HISTORY_DURATION = 60*60*1000; // 1 hour
+const UPDATE_INTERVAL = 5000;
+const HISTORY_DURATION = 60*60*1000;
 const MAX_POINTS = HISTORY_DURATION / UPDATE_INTERVAL;
 const PER_MINUTE = 60;
 
 function chart(id,color,min,max){
-    return new Chart(
-        document.getElementById(id),
-        {
-            type:"line",
-            data:{
-                labels:[],
-                datasets:[
-                    { data:[], borderColor:color, borderWidth:1.5, pointRadius:0, tension:0.15 },
-                    { data:[], borderColor:"#888888", borderWidth:1, pointRadius:0, borderDash:[5,5], label:"zero", fill:false }
-                ]
-            },
-            options:{
-                responsive:false,
-                animation:false,
-                plugins:{legend:{display:false}},
-                scales:{x:{display:false},y:{display:true,min:min,max:max}}
-            }
-        }
-    )
+    return new Chart(document.getElementById(id), {
+        type:"line",
+        data:{ labels:[], datasets:[
+            { data:[], borderColor:color, borderWidth:1.5, pointRadius:0, tension:0.15 },
+            { data:[], borderColor:"#888", borderWidth:1, pointRadius:0, borderDash:[5,5], label:"zero", fill:false }
+        ]},
+        options:{ responsive:false, animation:false, plugins:{legend:{display:false}}, scales:{x:{display:false},y:{display:true,min:min,max:max}} }
+    });
 }
 
 function push(chart,v){
@@ -126,71 +80,49 @@ function push(chart,v){
     const z = chart.data.datasets[1].data;
     const l = chart.data.labels;
     d.push(v); z.push(0); l.push("");
-    if(d.length > MAX_POINTS){ d.shift(); z.shift(); l.shift(); }
+    if(d.length>MAX_POINTS){ d.shift(); z.shift(); l.shift(); }
     chart.update("none");
 }
 
 // Charts
-const tempChart = chart("tempChart","#ff0000",10,30);
-const humChart = chart("humChart","#0099ff",20,80);
-const presChart = chart("presChart","#ffc857",900,1100);
-const luxChart = chart("luxChart","#ffffff",0,500);
-const co2Chart = chart("co2Chart","#0dff00",400,1600);
-const co2gradChart = chart("co2gradChart","#aaffaa",-150,50);
-const tgradChart = chart("tgradChart","#ffaaaa",-1,1);
-const hgradChart = chart("hgradChart","#00eeff",-5,3);
-
-// LD1020 chart
-const ld1020Chart = new Chart(
-    document.getElementById("ld1020Chart"),
-    { type:"line", data:{ labels:[], datasets:[
-        { data:[], borderColor:"#ffaa00", borderWidth:1.5, pointRadius:0, stepped:true },
-        { data:[], borderColor:"#888888", borderWidth:1, pointRadius:0, borderDash:[5,5], label:"zero", fill:false }
-    ]}, options:{ responsive:false, animation:false, plugins:{legend:{display:false}}, scales:{x:{display:false}, y:{display:true, min:0, max:1}} }
-    }
-);
-
-// AM312 chart
-const am312Chart = new Chart(
-    document.getElementById("am312Chart"),
-    { type:"line", data:{ labels:[], datasets:[
-        { data:[], borderColor:"#ff00ff", borderWidth:1.5, pointRadius:0, stepped:true },
-        { data:[], borderColor:"#888888", borderWidth:1, pointRadius:0, borderDash:[5,5], label:"zero", fill:false }
-    ]}, options:{ responsive:false, animation:false, plugins:{legend:{display:false}}, scales:{x:{display:false}, y:{display:true, min:0, max:1}} }
-    }
-);
+const tempChart = chart("tempChart","#f00",10,30);
+const humChart = chart("humChart","#09f",20,80);
+const presChart = chart("presChart","#fc5",900,1100);
+const luxChart = chart("luxChart","#fff",0,500);
+const co2Chart = chart("co2Chart","#0f0",400,1600);
+const co2gradChart = chart("co2gradChart","#afa",-150,50);
+const tgradChart = chart("tgradChart","#faa",-3,1);
+const hgradChart = chart("hgradChart","#0ef",-5,2);
+const ld1020Chart = chart("ld1020Chart","#fa0",0,1);
+const am312Chart = chart("am312Chart","#f0f",0,1);
 
 async function update(){
     const r = await fetch("/data");
     const j = await r.json();
 
-    const co2g = j.co2_grad * PER_MINUTE;
-    const tg = j.temp_grad * PER_MINUTE;
-    const hg = j.hum_grad * PER_MINUTE;
-
-    co2gradEl.innerText = co2g.toFixed(1);
-    tgradEl.innerText = tg.toFixed(2);
-    hgradEl.innerText = hg.toFixed(2);
-
+    deviceEl.innerText = j.device;
+    ssidEl.innerText = j.ssid;
     co2El.innerText = j.co2.toFixed(0);
     tempEl.innerText = j.temp.toFixed(2);
     humEl.innerText = j.hum.toFixed(2);
     presEl.innerText = j.pres.toFixed(1);
     luxEl.innerText = j.lux.toFixed(1);
-
-    ld1020El.innerText = j.ld1020_motion ? "Yes" : "No";
-    am312El.innerText = j.am312_motion ? "Yes" : "No";
+    co2gradEl.innerText = (j.co2_grad*PER_MINUTE).toFixed(1);
+    tgradEl.innerText = (j.temp_grad*PER_MINUTE).toFixed(2);
+    hgradEl.innerText = (j.hum_grad*PER_MINUTE).toFixed(2);
+    ld1020El.innerText = j.ld1020_motion?"Yes":"No";
+    am312El.innerText = j.am312_motion?"Yes":"No";
 
     push(tempChart, j.temp);
     push(humChart, j.hum);
     push(presChart, j.pres);
     push(luxChart, j.lux);
     push(co2Chart, j.co2);
-    push(co2gradChart, co2g);
-    push(tgradChart, tg);
-    push(hgradChart, hg);
-    push(ld1020Chart, j.ld1020_motion ? 1 : 0);
-    push(am312Chart, j.am312_motion ? 1 : 0);
+    push(co2gradChart, j.co2_grad*PER_MINUTE);
+    push(tgradChart, j.temp_grad*PER_MINUTE);
+    push(hgradChart, j.hum_grad*PER_MINUTE);
+    push(ld1020Chart, j.ld1020_motion?1:0);
+    push(am312Chart, j.am312_motion?1:0);
 
     sysEl.innerHTML =
         "WiFi RSSI: "+j.wifi_rssi+" dBm<br>"+
@@ -206,11 +138,11 @@ setInterval(update, UPDATE_INTERVAL);
 </html>
 )rawliteral";
 
-        req->send_P(200,"text/html",page); });
+        req->send_P(200, "text/html", page); });
 
-  server.on("/data", HTTP_GET, [](AsyncWebServerRequest *req)
-            { req->send(200, "application/json", jsonData()); });
+    server.on("/data", HTTP_GET, [](AsyncWebServerRequest *req)
+              { req->send(200, "application/json", jsonData()); });
 
-  server.begin();
-  Serial.println("[WEB] started");
+    server.begin();
+    Serial.println("[WEB] started");
 }

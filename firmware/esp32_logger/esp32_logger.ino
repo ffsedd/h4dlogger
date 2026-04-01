@@ -19,7 +19,7 @@
 
 #define MQTT_HOST "10.11.12.1"
 #define MQTT_PORT 1883
-#define MQTT_DEVICE_ID "kitchen"
+#define DEVICE_ID "kitchen"
 
 #define I2C_SDA 21
 #define I2C_SCL 22
@@ -772,7 +772,7 @@ void mqttSendCSV(
       topic,
       sizeof(topic),
       "%s/%s/%s",
-      MQTT_DEVICE_ID,
+      DEVICE_ID,
       sensor,
       metric);
 
@@ -943,7 +943,7 @@ void connectMQTT()
       topicStatus,
       sizeof(topicStatus),
       "%s/system/status",
-      MQTT_DEVICE_ID);
+      DEVICE_ID);
 
   //------------------------------------------------------
   // Last Will payload (offline)
@@ -959,7 +959,7 @@ void connectMQTT()
   // Connect
   //------------------------------------------------------
   if (mqtt.connect(
-          MQTT_DEVICE_ID,
+          DEVICE_ID,
           topicStatus, // LWT topic
           1,
           true, // retain
@@ -991,14 +991,14 @@ void connectMQTT()
 String jsonData()
 {
   auto safe = [](float v)
-  {
-    return isnan(v) || isinf(v) ? 0.0f : v;
-  };
+  { return isnan(v) || isinf(v) ? 0.0f : v; };
 
-  char buf[1280]; // increased size for additional field
+  char buf[1500]; // slightly larger for SSID
 
   snprintf(buf, sizeof(buf),
-           "{\"temp\":%.2f,\"hum\":%.2f,\"pres\":%.2f,\"lux\":%.2f,"
+           "{\"device\":\"%s\","
+           "\"ssid\":\"%s\","
+           "\"temp\":%.2f,\"hum\":%.2f,\"pres\":%.2f,\"lux\":%.2f,"
            "\"temp_smooth\":%.2f,\"hum_smooth\":%.2f,"
            "\"temp_grad\":%.3f,\"hum_grad\":%.3f,"
            "\"co2\":%.0f,\"co2_smooth\":%.0f,\"co2_grad\":%.3f,"
@@ -1006,6 +1006,8 @@ String jsonData()
            "\"wifi_rssi\":%d,\"wifi_ch\":%d,"
            "\"heap\":%u,\"heap_min\":%u,"
            "\"uptime\":%lu,\"ip\":\"%s\",\"mqtt\":%s}",
+           DEVICE_ID,
+           WiFi.SSID().c_str(),
            safe(temp), safe(hum), safe(pres), safe(lux),
            safe(tempSmooth), safe(humSmooth),
            safe(tempGrad), safe(humGrad),
