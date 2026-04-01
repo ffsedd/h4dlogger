@@ -40,6 +40,9 @@
 #define LOG_MQTT_EVENTS 0
 #define LOG_LED_EVENTS 0
 
+constexpr uint32_t MOTION_HOLD_MS = 30 * 60 * 1000; // time to hold LED on after motion detected (ms)
+constexpr uint8_t PIN_AM312 = 19;
+
 ////////////////////////////////////////////////////////////
 // UTILS: RUNNING MEAN
 ////////////////////////////////////////////////////////////
@@ -92,9 +95,7 @@ uint32_t lastMqttTry = 0;
 ////////////////////////////////////////////////////////////
 // MOTION SENSORS
 ////////////////////////////////////////////////////////////
-constexpr uint32_t MOTION_HOLD_MS = 10000; // time to hold LED on after motion detected (ms)
 
-constexpr uint8_t PIN_AM312 = 19;
 struct am312Status
 {
   bool present = true;
