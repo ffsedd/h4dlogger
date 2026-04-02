@@ -17,4 +17,3 @@ upload-ota:
 	echo "Uploading to $(OTA_IP)  ..."
 	echo "\n\n------------------------ PRESS ENTER ------------------------\n\n"
 	arduino-cli upload --fqbn $(BOARD) -p $(OTA_IP) $(SKETCH)
-WW
