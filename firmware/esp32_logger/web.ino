@@ -62,9 +62,9 @@ function subplot(id,color,vmin,vmax,vbase,gmin,gmax,gbase){
             labels:[],
             datasets:[
                 { data:[], borderColor:color, borderWidth:1.6, pointRadius:0, tension:0.15, yAxisID:"y" },
-                { data:[], borderColor:"#555", borderDash:[5,5], pointRadius:0, borderWidth:1, yAxisID:"y" },
+                { data:[], borderColor:"#666", borderDash:[5,5], pointRadius:0, borderWidth:1, yAxisID:"y" },
                 { data:[], borderColor:"#333", borderWidth:1.4, pointRadius:0, tension:0.15, yAxisID:"y2" },
-                { data:[], borderColor:"#222", borderDash:[5,5], pointRadius:0, borderWidth:1, yAxisID:"y2" }
+                { data:[], borderColor:"#444", borderDash:[5,5], pointRadius:0, borderWidth:1, yAxisID:"y2" }
             ]
         },
         options:{

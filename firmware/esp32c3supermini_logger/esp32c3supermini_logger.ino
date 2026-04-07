@@ -50,7 +50,7 @@ constexpr gpio_num_t PIN_I2C_SCL = GPIO_NUM_6;
 #define TZ_INFO "CET-1CEST,M3.5.0,M10.5.0/3"
 
 #define SAMPLE_INTERVAL 500     // 0.5 s
-#define SAMPLE_INTERVAL_SCD40 0 // disabled
+#define SAMPLE_INTERVAL_SCD40 5000 // 5 s
 #define AGG_INTERVAL 300000     // 5 min
 #define FILTER_N 5
 
@@ -68,6 +68,16 @@ struct WifiHotspots
   const char *password;
 };
 #include "wifi_secrets.h"
+
+////////////////////////////////////////////////////////////
+// WIFI STATE
+////////////////////////////////////////////////////////////
+
+uint32_t wifiLastAttempt = 0;
+constexpr uint32_t WIFI_RETRY_MS = 30000;   // 30 s
+constexpr uint32_t WIFI_REBOOT_MS = 3600000; // 1 h
+uint32_t wifiOfflineSince = 0;
+
 
 ////////////////////////////////////////////////////////////
 // UTILS: RUNNING MEAN
@@ -298,7 +308,6 @@ void read_fast_sensors();
 void read_SCD40();
 void read_sensors();
 void print_sysinfo();
-void wifi_watchdog();
 void sync_ntp_time();
 void updateLED();
 void mqttSendCSV(unsigned long ts, const char *sensor, const char *metric, float value, bool retained = false);
@@ -582,30 +591,6 @@ void print_sysinfo()
   Serial.println("============================\n");
 }
 
-////////////////////////////////////////////////////////////
-// WIFI WATCHDOG
-////////////////////////////////////////////////////////////
-
-uint32_t wifiLostAt = 0;
-
-void wifi_watchdog()
-{
-
-  if (WiFi.status() == WL_CONNECTED)
-  {
-    wifiLostAt = 0;
-    return;
-  }
-
-  if (wifiLostAt == 0)
-    wifiLostAt = millis();
-
-  if (millis() - wifiLostAt > 3600000)
-  {
-    Serial.println("WiFi stalled -> reboot");
-    ESP.restart();
-  }
-}
 
 ////////////////////////////////////////////////////////////
 // WIFI
@@ -613,8 +598,6 @@ void wifi_watchdog()
 int find_best_wifi()
 {
   WiFi.mode(WIFI_STA);
-  WiFi.disconnect(true, true);
-  delay(300);
 
   int bestRSSI = -1000;
   int bestIndex = -1;
@@ -665,7 +648,7 @@ const char *wifi_status_str(wl_status_t s)
   }
 }
 
-bool connect_best_wifi(unsigned long timeout = 15000)
+bool connect_best_wifi(unsigned long timeout = 8000)
 {
   int idx = find_best_wifi();
 
@@ -684,28 +667,6 @@ bool connect_best_wifi(unsigned long timeout = 15000)
       wifihotspots[idx].ssid,
       wifihotspots[idx].password);
 
-  unsigned long start = millis();
-
-  while (WiFi.status() != WL_CONNECTED)
-  {
-    wl_status_t s = WiFi.status();
-
-    Serial.printf("WiFi status: %s\n", wifi_status_str(s));
-
-    if (millis() - start > timeout)
-    {
-      Serial.println("Connection timed out");
-      WiFi.disconnect(true);
-      return false;
-    }
-
-    delay(500);
-  }
-
-  Serial.println("Connected!");
-  Serial.print("IP: ");
-  Serial.println(WiFi.localIP());
-
   return true;
 }
 ////////////////////////////////////////////////////////////
@@ -717,22 +678,6 @@ void sync_ntp_time()
 
   configTzTime(TZ_INFO, NTP_SERVER);
 
-  time_t now = time(nullptr);
-  uint32_t start = millis();
-
-  Serial.print("NTP syncing");
-
-  while (now < 1000000000 && millis() - start < 15000)
-  {
-    delay(1000);
-    Serial.print(".");
-    now = time(nullptr);
-  }
-
-  if (now > 1000000000)
-    Serial.println("\nTime OK");
-  else
-    Serial.println("\nNTP FAILED");
 }
 
 ////////////////////////////////////////////////////////////
@@ -759,8 +704,13 @@ void updateLED()
   // CO2 VALIDITY
   ////////////////////////////////////////////////////////////
 
-  if (isnan(co2Smooth))
-    return;
+    if (isnan(co2Smooth)) // no CO2 value -> no LED output
+    {
+        ledcWrite(CH_G,0);
+        ledcWrite(CH_Y,0);
+        ledcWrite(CH_R,0);
+        return;
+    }
 
   static uint32_t lastUpdate = 0;
   static uint32_t lastBlink = 0;
@@ -1168,10 +1118,66 @@ void setupOTA()
   Serial.println("OTA ready");
 }
 
+
+
+
+////////////////////////////////////////////////////////
+// WIFI WATCHDOG
+////////////////////////////////////////////////////////
+void wifi_watchdog()
+{
+    wl_status_t st = WiFi.status();
+
+
+    if (st == WL_CONNECTED)
+    {
+        wifiOfflineSince = 0;
+        return;
+    }
+
+    if (wifiOfflineSince == 0)
+        wifiOfflineSince = millis();
+
+
+    if (millis() - wifiLastAttempt > WIFI_RETRY_MS)
+    {
+        wifiLastAttempt = millis();
+
+        Serial.println("[WiFi] reconnect attempt");
+
+        connect_best_wifi(8000);   // short timeout
+    }
+
+
+    if (millis() - wifiOfflineSince > WIFI_REBOOT_MS)
+    {
+        Serial.println("[WiFi] offline too long -> reboot");
+        ESP.restart();
+    }
+}
+
+
+
+
 void WiFiEvent(WiFiEvent_t event)
 {
-  Serial.printf("WiFi event: %d\n", event);
+  switch(event)
+  {
+    case ARDUINO_EVENT_WIFI_STA_GOT_IP:
+        Serial.printf("[WiFi] IP %s\n",
+            WiFi.localIP().toString().c_str());
+        break;
+
+    case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
+        Serial.println("[WiFi] disconnected");
+        break;
+
+    default:
+        break;
+  }
 }
+
+
 
 ////////////////////////////////////////////////////////////
 // SETUP
@@ -1186,14 +1192,19 @@ void setup()
   Serial.printf("Reset reason: %d\n", esp_reset_reason());
 
   // ---------- I2C ----------
+  Wire.setTimeout(50);
   Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
   Wire.setClock(100000);
-  Wire.setTimeOut(50);
+
 
   // ---------- WIFI ----------
   WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(true);
+  WiFi.onEvent(WiFiEvent);
+  WiFi.persistent(false);
   WiFi.setSleep(false);
   WiFi.disconnect(true, true);
+  
   delay(300);
 
   WiFi.onEvent(WiFiEvent);
@@ -1201,6 +1212,9 @@ void setup()
 
   if (WiFi.status() == WL_CONNECTED)
   {
+    Serial.printf("[WiFi] connected IP=%s RSSI=%d\n",
+                  WiFi.localIP().toString().c_str(),
+                  WiFi.RSSI());
     setupOTA(); // OTA only after WiFi OK
     sync_ntp_time();
   }
@@ -1229,16 +1243,7 @@ void loop()
   uint32_t now = millis();
 
   // ---------- WIFI WATCHDOG ----------
-  if (WiFi.status() != WL_CONNECTED)
-  {
-    if (now - lastWifiRetry > 10000) // retry every 10 s
-    {
-      Serial.println("WiFi reconnect attempt...");
-      WiFi.reconnect(); // IMPORTANT: no scan
-      lastWifiRetry = now;
-    }
-    return; // nothing else works without WiFi
-  }
+  wifi_watchdog();
 
   // ---------- MQTT ----------
   connect_MQTT();
