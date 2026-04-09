@@ -13,16 +13,7 @@ upload:
 	arduino-cli upload -p $(PORT)  --fqbn $(BOARD) --upload-property upload.speed=$(UPLOADSPEED) $(SKETCH)
 	arduino-cli monitor -p $(PORT) -c baudrate=$(BAUDRATE)
 
-upload181:
+upload-ota:
 	echo "Uploading to $(OTA_IP)  ..."
 	echo "\n\n------------------------ PRESS ENTER ------------------------\n\n"
-	arduino-cli upload --fqbn $(BOARD) -p 10.11.12.181 $(SKETCH)
-
-upload190:
-	echo "Uploading to $(OTA_IP)  ..."
-	echo "\n\n------------------------ PRESS ENTER ------------------------\n\n"
-	arduino-cli upload --fqbn $(BOARD) -p 10.11.12.190 $(SKETCH)
-
-ls:
-	arduino-cli board list
-	
+	arduino-cli upload --fqbn $(BOARD) -p $(OTA_IP) $(SKETCH)

@@ -26,9 +26,10 @@
 // ======================
 // LED pins
 // ======================
-constexpr gpio_num_t PIN_LED_R = GPIO_NUM_3;
-constexpr gpio_num_t PIN_LED_G = GPIO_NUM_4;
-constexpr gpio_num_t PIN_LED_Y = GPIO_NUM_5;
+constexpr gpio_num_t PIN_LED_R = GPIO_NUM_4;
+constexpr gpio_num_t PIN_LED_Y = GPIO_NUM_3;
+constexpr gpio_num_t PIN_LED_G = GPIO_NUM_1;
+
 constexpr uint8_t CH_R = 0;
 constexpr uint8_t CH_G = 1;
 constexpr uint8_t CH_Y = 2;
@@ -36,7 +37,7 @@ constexpr uint8_t CH_Y = 2;
 // ======================
 // Motion sensors
 // ======================
-constexpr gpio_num_t PIN_LD1020 = GPIO_NUM_1;
+constexpr gpio_num_t PIN_LD1020 = GPIO_NUM_0;
 bool LD1020_PRESENT = false;
 constexpr gpio_num_t PIN_AM312 = GPIO_NUM_10;
 bool AM312_PRESENT = true;
@@ -56,9 +57,9 @@ constexpr gpio_num_t PIN_I2C_SCL = GPIO_NUM_6;
 
 #define LOG_VALUES 0
 
-#define LOG_MOTION_EVENTS 0
-#define LOG_MQTT_EVENTS 0
-#define LOG_LED_EVENTS 0
+#define LOG_MOTION_EVENTS 1
+#define LOG_MQTT_EVENTS 1
+#define LOG_LED_EVENTS 1
 
 void startWeb(); // in file web.ino
 
@@ -131,7 +132,7 @@ uint32_t lastMqttTry = 0;
 ////////////////////////////////////////////////////////////
 // MOTION SENSORS
 ////////////////////////////////////////////////////////////
-constexpr uint32_t MOTION_HOLD_MS = 10000; // time to hold LED on after motion detected (ms)
+constexpr uint32_t MOTION_HOLD_MS = 30*60*1000; // time to hold LED on after motion detected (ms)
 
 struct am312Status
 {
@@ -383,24 +384,21 @@ void init_i2c_sensors()
   }
 }
 
-// void setupLED()
-// {
-//   pinMode(PIN_LED_R, OUTPUT);
-//   pinMode(PIN_LED_G, OUTPUT);
-//   pinMode(PIN_LED_Y, OUTPUT);
 
-//   ledcSetup(CH_R, PWM_FREQ, PWM_RES);
-//   ledcSetup(CH_G, PWM_FREQ, PWM_RES);
-//   ledcSetup(CH_Y, PWM_FREQ, PWM_RES);
 
-//   ledcAttachPin(PIN_LED_R, CH_R);
-//   ledcAttachPin(PIN_LED_G, CH_G);
-//   ledcAttachPin(PIN_LED_Y, CH_Y);
+void setupLED()
+{
+  ledcAttach(PIN_LED_R, PWM_FREQ, PWM_RES);
+  ledcAttach(PIN_LED_G, PWM_FREQ, PWM_RES);
+  ledcAttach(PIN_LED_Y, PWM_FREQ, PWM_RES);
 
-//   ledcWrite(CH_R, 0);
-//   ledcWrite(CH_G, 0);
-//   ledcWrite(CH_Y, 0);
-// }
+  ledcWrite(PIN_LED_R, 0);
+  ledcWrite(PIN_LED_G, 0);
+  ledcWrite(PIN_LED_Y, 0);
+}
+
+
+
 void setup_LD1020()
 {
   if (LD1020_PRESENT)
@@ -675,28 +673,59 @@ bool connect_best_wifi(unsigned long timeout = 8000)
 
 void sync_ntp_time()
 {
+    configTzTime(TZ_INFO, NTP_SERVER);
 
-  configTzTime(TZ_INFO, NTP_SERVER);
-
+    Serial.println("[NTP] Waiting for time sync...");
+    time_t now = 0;
+    int retry = 0;
+    const int max_retry = 30; // ~15s
+    while ((now = time(nullptr)) < 24*3600 && retry < max_retry)
+    {
+        delay(500);
+        Serial.print(".");
+        retry++;
+    }
+    if (retry >= max_retry)
+        Serial.println("\n[NTP] Time sync failed!");
+    else
+        Serial.println("\n[NTP] Time synced!");
 }
-
 ////////////////////////////////////////////////////////////
 // LED OUTPUT
 ////////////////////////////////////////////////////////////
+
+enum class BlinkMode : uint8_t
+{
+  NONE,
+  GREEN_IDLE,   // 200 ms / 2 s
+  SLOW_RED,     // 1 Hz
+  FAST_RED      // 3 Hz
+};
+
+static inline uint8_t lerp8(float t)
+{
+  if (t < 0) t = 0;
+  if (t > 1) t = 1;
+  return (uint8_t)(t * 255.0f);
+}
+
 void updateLED()
 {
   const uint32_t now = millis();
 
   ////////////////////////////////////////////////////////////
   // MOTION GATE
-  // LED OFF if motion is too old
   ////////////////////////////////////////////////////////////
-  uint32_t lastMotionTs = max(ld1020.lastMotionTs, am312.lastMotionTs);
-  if (lastMotionTs == 0 || (now - lastMotionTs) > MOTION_HOLD_MS)
+
+  uint32_t lastMotionTs =
+      max(ld1020.lastMotionTs, am312.lastMotionTs);
+
+  if (lastMotionTs == 0 ||
+      (now - lastMotionTs) > MOTION_HOLD_MS)
   {
-    ledcWrite(CH_G, 0);
-    ledcWrite(CH_Y, 0);
-    ledcWrite(CH_R, 0);
+    ledcWrite(PIN_LED_G,0);
+    ledcWrite(PIN_LED_Y,0);
+    ledcWrite(PIN_LED_R,0);
     return;
   }
 
@@ -704,98 +733,116 @@ void updateLED()
   // CO2 VALIDITY
   ////////////////////////////////////////////////////////////
 
-    if (isnan(co2Smooth)) // no CO2 value -> no LED output
-    {
-        ledcWrite(CH_G,0);
-        ledcWrite(CH_Y,0);
-        ledcWrite(CH_R,0);
-        return;
-    }
+  if (isnan(co2Smooth))
+  {
+    ledcWrite(PIN_LED_G,0);
+    ledcWrite(PIN_LED_Y,0);
+    ledcWrite(PIN_LED_R,0);
+    return;
+  }
 
-  static uint32_t lastUpdate = 0;
-  static uint32_t lastBlink = 0;
-  static bool blink = false;
+  ////////////////////////////////////////////////////////////
+  // DETERMINE STATE
+  ////////////////////////////////////////////////////////////
 
-  uint8_t g = 0, y = 0, r = 0;
   float co2 = co2Smooth;
 
-  ////////////////////////////////////////////////////////////
-  // CRITICAL (>1600 ppm) — fast blink
-  ////////////////////////////////////////////////////////////
-
-  if (co2 > 1600)
-  {
-    if (now - lastBlink >= 200) // 5 Hz
-    {
-      lastBlink = now;
-      blink = !blink;
-    }
-
-    r = blink ? 255 : 0;
-
-    ledcWrite(CH_G, 0);
-    ledcWrite(CH_Y, 0);
-    ledcWrite(CH_R, r);
-    return;
-  }
-
-  ////////////////////////////////////////////////////////////
-  // WARNING (>1400 ppm) — slow blink
-  ////////////////////////////////////////////////////////////
-
-  if (co2 > 1400)
-  {
-    if (now - lastBlink >= 500) // 2 Hz
-    {
-      lastBlink = now;
-      blink = !blink;
-    }
-
-    r = blink ? 255 : 0;
-
-    ledcWrite(CH_G, 0);
-    ledcWrite(CH_Y, 0);
-    ledcWrite(CH_R, r);
-    return;
-  }
-
-  ////////////////////////////////////////////////////////////
-  // NORMAL MODE (rate limited)
-  ////////////////////////////////////////////////////////////
-
-  if (now - lastUpdate < SAMPLE_INTERVAL)
-    return;
-
-  lastUpdate = now;
+  uint8_t g=0,y=0,r=0;
+  BlinkMode blinkMode = BlinkMode::NONE;
 
   if (co2 < 600)
   {
     g = 255;
+    blinkMode = BlinkMode::GREEN_IDLE;
   }
   else if (co2 < 800)
   {
-    float t = (co2 - 600.0f) / 200.0f;
-    g = (uint8_t)((1.0f - t) * 255);
-    y = (uint8_t)(t * 255);
+    g = 255;
   }
   else if (co2 < 1000)
   {
-    y = 255;
+    float t = (co2 - 800.f)/200.f;
+    g = lerp8(1.f - t);
+    y = lerp8(t);
   }
   else if (co2 < 1200)
   {
-    float t = (co2 - 1000.0f) / 200.0f;
-    y = (uint8_t)((1.0f - t) * 255);
-    r = (uint8_t)(t * 255);
+    y = 255;
+  }
+  else if (co2 < 1400)
+  {
+    float t = (co2 - 1200.f)/200.f;
+    y = lerp8(1.f - t);
+    r = lerp8(t);
+  }
+  else if (co2 < 1600)
+  {
+    r = 255;
+  }
+  else if (co2 < 1800)
+  {
+    r = 255;
+    blinkMode = BlinkMode::SLOW_RED;
   }
   else
   {
     r = 255;
+    blinkMode = BlinkMode::FAST_RED;
   }
 
-  ledcWrite(CH_G, g);
-  ledcWrite(CH_Y, y);
-  ledcWrite(CH_R, r);
+  ////////////////////////////////////////////////////////////
+  // BLINK ENGINE (non-blocking)
+  ////////////////////////////////////////////////////////////
+
+  static uint32_t phaseStart = 0;
+  static bool blinkOn = true;
+
+  uint32_t period = 0;
+  uint32_t onTime = 0;
+
+  switch (blinkMode)
+  {
+    case BlinkMode::GREEN_IDLE:
+      period = 2000;
+      onTime = 200;
+      break;
+
+    case BlinkMode::SLOW_RED:
+      period = 2000;
+      onTime = 1000;
+      break;
+
+    case BlinkMode::FAST_RED:
+      period = 500;
+      onTime = 250;
+      break;
+
+    default:
+      break;
+  }
+
+  if (blinkMode != BlinkMode::NONE)
+  {
+    if (now - phaseStart >= period)
+      phaseStart = now;
+
+    blinkOn = (now - phaseStart) < onTime;
+  }
+  else
+  {
+    blinkOn = true;
+  }
+
+  ////////////////////////////////////////////////////////////
+  // APPLY OUTPUT
+  ////////////////////////////////////////////////////////////
+
+  if (!blinkOn)
+    g=y=r=0;
+
+  ledcWrite(PIN_LED_G,g);
+  ledcWrite(PIN_LED_Y,y);
+  ledcWrite(PIN_LED_R,r);
 
   ////////////////////////////////////////////////////////////
   // RATE-LIMITED LOGGING
@@ -803,13 +850,13 @@ void updateLED()
 
   if (LOG_LED_EVENTS)
   {
-    static uint32_t lastLog = 0;
-
-    if (now - lastLog > 5000)
+    static uint32_t lastLog=0;
+    if (now-lastLog>5000)
     {
-      lastLog = now;
-      Serial.printf("[LED] CO2=%.1f G=%u Y=%u R=%u\n",
-                    co2, g, y, r);
+      lastLog=now;
+      Serial.printf(
+        "[LED] CO2=%.1f G=%u Y=%u R=%u mode=%u\n",
+        co2,g,y,r,(uint8_t)blinkMode);
     }
   }
 }
@@ -1097,27 +1144,25 @@ volatile bool otaInProgress = false;
 
 void setupOTA()
 {
-  ArduinoOTA.setHostname("esp32-lab");
-  ArduinoOTA.setPasswordHash("");
-  // ArduinoOTA.setPassword(nullptr); // disable password prompt
-  ArduinoOTA.onStart([]()
-                     {
-    otaInProgress = true;
-    Serial.println("Start OTA, pausing sensors"); });
+    ArduinoOTA.setHostname(DEVICE_ID);
 
-  ArduinoOTA.onEnd([]()
-                   {
-    otaInProgress = false;
-    Serial.println("\nEnd OTA"); });
-  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total)
-                        { Serial.printf("Progress: %u%%\r", (progress * 100) / total); });
-  ArduinoOTA.onError([](ota_error_t error)
-                     { Serial.printf("Error[%u]: ", error); });
+    ArduinoOTA
+        .onStart([]() {
+            Serial.println("[OTA] Start");
+        })
+        .onEnd([]() {
+            Serial.println("\n[OTA] End");
+        })
+        .onProgress([](unsigned int progress, unsigned int total) {
+            Serial.printf("[OTA] %u%%\r", progress * 100 / total);
+        })
+        .onError([](ota_error_t error) {
+            Serial.printf("[OTA] Error[%u]\n", error);
+        });
 
-  ArduinoOTA.begin();
-  Serial.println("OTA ready");
+    ArduinoOTA.begin();
+    Serial.println("[OTA] Ready");
 }
-
 
 
 
@@ -1178,58 +1223,79 @@ void WiFiEvent(WiFiEvent_t event)
 }
 
 
+bool wait_for_wifi(uint32_t timeout_ms = 15000)
+{
+  uint32_t start = millis();
 
+  while (!WiFi.isConnected())
+  {
+    delay(100);
+
+    if (millis() - start > timeout_ms)
+    {
+      Serial.println("[WiFi] timeout");
+      return false;
+    }
+  }
+  return true;
+}
 ////////////////////////////////////////////////////////////
 // SETUP
 ////////////////////////////////////////////////////////////
-
 void setup()
 {
+  // ---------- SERIAL ----------
   Serial.begin(115200);
   Serial.setDebugOutput(true);
 
   Serial.println("\n===== BOOT =====");
   Serial.printf("Reset reason: %d\n", esp_reset_reason());
 
-  // ---------- I2C ----------
+  // ---------- I2C / HARDWARE FIRST ----------
   Wire.setTimeout(50);
   Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
   Wire.setClock(100000);
 
-
-  // ---------- WIFI ----------
-  WiFi.mode(WIFI_STA);
-  WiFi.setAutoReconnect(true);
-  WiFi.onEvent(WiFiEvent);
-  WiFi.persistent(false);
-  WiFi.setSleep(false);
-  WiFi.disconnect(true, true);
-  
-  delay(300);
-
-  WiFi.onEvent(WiFiEvent);
-  connect_best_wifi(); // single connection attempt
-
-  if (WiFi.status() == WL_CONNECTED)
-  {
-    Serial.printf("[WiFi] connected IP=%s RSSI=%d\n",
-                  WiFi.localIP().toString().c_str(),
-                  WiFi.RSSI());
-    setupOTA(); // OTA only after WiFi OK
-    sync_ntp_time();
-  }
-
-  // ---------- DEVICES ----------
   scan_i2c_devices();
   init_i2c_sensors();
 
   setup_LD1020();
   setup_AM312();
+  setupLED();
 
+  // ---------- WIFI STACK ----------
+  WiFi.mode(WIFI_STA);
+  WiFi.persistent(false);
+  WiFi.setSleep(false);
+  WiFi.setAutoReconnect(true);
+  WiFi.onEvent(WiFiEvent);
+  WiFi.disconnect(true, true);
+
+  delay(200);
+
+  connect_best_wifi();
+
+  // ---------- WAIT FOR CONNECTION ----------
+  wait_for_wifi();     // IMPORTANT
+
+  // ---------- STATUS ----------
+  if (WiFi.isConnected())
+  {
+    Serial.printf("[WiFi] IP=%s RSSI=%d\n",
+      WiFi.localIP().toString().c_str(),
+      WiFi.RSSI());
+  }
+
+  print_sysinfo();
+
+  // ---------- TIME ----------
+  sync_ntp_time();
+
+  // ---------- NETWORK SERVICES ----------
   mqtt.setServer(MQTT_HOST, MQTT_PORT);
 
-  startWeb();
-  print_sysinfo();
+  startWeb();      // needs IP
+  setupOTA();      // safest last
 }
 
 ////////////////////////////////////////////////////////////
@@ -1261,6 +1327,8 @@ void loop()
     lastAgg = now;
     publish_Agg_values();
   }
+  
+  updateLED();
 
   delay(1);
 }

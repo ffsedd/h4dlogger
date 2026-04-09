@@ -134,7 +134,7 @@ https://rajguruelectronics.com/Product/21153/170624162821.pdf
 # SHT40 Temperature, Humidity ($2)
 3V
 < .6 mA
-decoupling input: 100 nF,optional 1 µF if cable >10 cm 
+decoupling input: 100 nF (104),optional 1 µF if cable >10 cm 
 https://sensirion.com/products/catalog/SHT40
 
 # SCD40 CO2 ($20)
