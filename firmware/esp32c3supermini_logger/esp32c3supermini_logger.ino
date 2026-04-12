@@ -20,8 +20,9 @@
 #define MQTT_HOST "10.11.12.1"
 #define MQTT_PORT 1883
 
-//  ======================= DEVICE NAME ===============================
-#define DEVICE_ID "bedroom"
+//  ======================= LOAD CONFIG ===============================
+#include "build_config.h" // contains DEVICE_ID
+
 
 // ======================
 // LED pins
@@ -803,8 +804,8 @@ void updateLED()
   switch (blinkMode)
   {
     case BlinkMode::GREEN_IDLE:
-      period = 2000;
-      onTime = 200;
+      period = 500;
+      onTime = 10;
       break;
 
     case BlinkMode::SLOW_RED:
