@@ -48,19 +48,22 @@ bool AM312_PRESENT = true;
 constexpr gpio_num_t PIN_I2C_SDA = GPIO_NUM_7;
 constexpr gpio_num_t PIN_I2C_SCL = GPIO_NUM_6;
 
+
+#define CPU_FREQ_MHZ 40 // 40-80 power saving, 240 max
+
 #define NTP_SERVER "tak.cesnet.cz"
 #define TZ_INFO "CET-1CEST,M3.5.0,M10.5.0/3"
 
-#define SAMPLE_INTERVAL 500     // 0.5 s
-#define SAMPLE_INTERVAL_SCD40 5000 // 5 s
+#define SAMPLE_INTERVAL 2000     // 2 s
+#define SAMPLE_INTERVAL_SCD40 10000 // 10 s
 #define AGG_INTERVAL 300000     // 5 min
 #define FILTER_N 5
 
 #define LOG_VALUES 0
 
-#define LOG_MOTION_EVENTS 1
-#define LOG_MQTT_EVENTS 1
-#define LOG_LED_EVENTS 1
+#define LOG_MOTION_EVENTS 0
+#define LOG_MQTT_EVENTS 0
+#define LOG_LED_EVENTS 0
 
 void startWeb(); // in file web.ino
 
@@ -76,10 +79,10 @@ struct WifiHotspots
 ////////////////////////////////////////////////////////////
 
 uint32_t wifiLastAttempt = 0;
-constexpr uint32_t WIFI_RETRY_MS = 30000;   // 30 s
+constexpr uint32_t WIFI_RETRY_MS = 60000;   // 60 s
 constexpr uint32_t WIFI_REBOOT_MS = 3600000; // 1 h
 uint32_t wifiOfflineSince = 0;
-
+bool WIFI_SLEEP = true;
 
 ////////////////////////////////////////////////////////////
 // UTILS: RUNNING MEAN
@@ -195,7 +198,7 @@ SCD4x scd4;
 // LED
 ////////////////////////////////////////////////////////////
 constexpr uint8_t PWM_RES = 8;      // PWM resolution (bits)
-constexpr uint32_t PWM_FREQ = 1000; // PWM frequency (Hz)
+constexpr uint32_t PWM_FREQ = 100; // PWM frequency (Hz)
 
 enum LedState
 {
@@ -658,7 +661,7 @@ bool connect_best_wifi(unsigned long timeout = 8000)
   }
 
   WiFi.mode(WIFI_STA);
-  WiFi.setSleep(false);
+  WiFi.setSleep(WIFI_SLEEP);
 
   Serial.printf("Connecting to %s\n", wifihotspots[idx].ssid);
 
@@ -804,8 +807,8 @@ void updateLED()
   switch (blinkMode)
   {
     case BlinkMode::GREEN_IDLE:
-      period = 500;
-      onTime = 10;
+      period = 1000;
+      onTime = 2;
       break;
 
     case BlinkMode::SLOW_RED:
@@ -1297,6 +1300,9 @@ void setup()
 
   startWeb();      // needs IP
   setupOTA();      // safest last
+  
+  setCpuFrequencyMhz(CPU_FREQ_MHZ);
+  
 }
 
 ////////////////////////////////////////////////////////////
@@ -1331,5 +1337,5 @@ void loop()
   
   updateLED();
 
-  delay(1);
+  delay(5);
 }

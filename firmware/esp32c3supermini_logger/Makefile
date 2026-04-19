@@ -32,7 +32,8 @@ config:
 ############################################################
 
 compile: $(CONFIG_FILE)
-	@echo "Compiling ID=$(ID)"
+	@echo "Compiling..."
+	cat $(CONFIG_FILE)
 	arduino-cli compile --verbose \
 		--fqbn $(BOARD) \
 		$(SKETCH)
