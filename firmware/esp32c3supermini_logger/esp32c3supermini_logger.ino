@@ -49,7 +49,7 @@ constexpr gpio_num_t PIN_I2C_SDA = GPIO_NUM_7;
 constexpr gpio_num_t PIN_I2C_SCL = GPIO_NUM_6;
 
 
-#define CPU_FREQ_MHZ 40 // 40-80 power saving, 240 max
+#define CPU_FREQ_MHZ 80 // 40=too low, wifi fails, 80= power saving, 240 max
 
 #define NTP_SERVER "tak.cesnet.cz"
 #define TZ_INFO "CET-1CEST,M3.5.0,M10.5.0/3"
@@ -128,6 +128,8 @@ float tempGrad = 0, humGrad = 0, co2Grad = 0;
 float co2 = NAN;
 float co2Smooth = NAN;
 
+float cpuTemp = NAN;
+
 time_t aggStartTs = 0;
 uint32_t lastSample = 0;
 uint32_t lastAgg = 0;
@@ -198,7 +200,7 @@ SCD4x scd4;
 // LED
 ////////////////////////////////////////////////////////////
 constexpr uint8_t PWM_RES = 8;      // PWM resolution (bits)
-constexpr uint32_t PWM_FREQ = 100; // PWM frequency (Hz)
+constexpr uint32_t PWM_FREQ = 200; // PWM frequency (Hz)
 
 enum LedState
 {
@@ -447,7 +449,7 @@ void read_fast_sensors()
     ld1020Agg.add(ld1020.motion);
     if (ld1020.motion)
       ld1020.lastMotionTs = millis();
-    if (ld1020.motion && !ld1020.lastMotion)
+    if (LOG_MOTION_EVENTS && ld1020.motion && !ld1020.lastMotion)
       Serial.println("[LD1020] motion detected! =====================");
     ld1020.lastMotion = ld1020.motion;
   }
@@ -457,7 +459,7 @@ void read_fast_sensors()
     am312Agg.add(am312.motion);
     if (am312.motion)
       am312.lastMotionTs = millis();
-    if (am312.motion && !am312.lastMotion)
+    if (LOG_MOTION_EVENTS && am312.motion && !am312.lastMotion)
       Serial.println("[AM312] motion detected! --------------------");
     am312.lastMotion = am312.motion;
   }
@@ -549,11 +551,15 @@ void read_SCD40()
     Serial.printf("[CO2] %.1f | smooth: %.1f | grad: %.3f ppm/s\n", co2, co2Smooth, co2Grad);
 }
 
+
 void read_sensors()
 {
   read_fast_sensors();
   read_SCD40();
+
+  cpuTemp = temperatureRead();  
 }
+
 
 ////////////////////////////////////////////////////////////
 // SYSTEM INFO
@@ -1107,15 +1113,18 @@ void connect_MQTT()
 // WEB JSON - REALTIME STATUS ENDPOINT
 ////////////////////////////////////////////////////////////
 
+float safe(float v) { return (isnan(v) || isinf(v)) ? 0.0f : v; }
+
 String jsonData()
 {
   auto safe = [](float v)
   { return isnan(v) || isinf(v) ? 0.0f : v; };
 
-  char buf[1500]; // slightly larger for SSID
+  char buf[1600];
 
   snprintf(buf, sizeof(buf),
-           "{\"device\":\"%s\","
+           "{"
+           "\"device\":\"%s\","
            "\"ssid\":\"%s\","
            "\"temp\":%.2f,\"hum\":%.2f,\"pres\":%.2f,\"lux\":%.2f,"
            "\"temp_smooth\":%.2f,\"hum_smooth\":%.2f,"
@@ -1123,8 +1132,13 @@ String jsonData()
            "\"co2\":%.0f,\"co2_smooth\":%.0f,\"co2_grad\":%.3f,"
            "\"ld1020_motion\":%d,\"am312_motion\":%d,"
            "\"wifi_rssi\":%d,\"wifi_ch\":%d,"
+           "\"cpu_temp\":%.2f,"
+           "\"cpu_freq\":%d,"
            "\"heap\":%u,\"heap_min\":%u,"
-           "\"uptime\":%lu,\"ip\":\"%s\",\"mqtt\":%s}",
+           "\"uptime\":%lu,"
+           "\"ip\":\"%s\","
+           "\"mqtt\":%s"
+           "}",
            DEVICE_ID,
            WiFi.SSID().c_str(),
            safe(temp), safe(hum), safe(pres), safe(lux),
@@ -1133,8 +1147,12 @@ String jsonData()
            safe(co2), safe(co2Smooth), safe(co2Grad),
            ld1020.motion ? 1 : 0,
            am312.motion ? 1 : 0,
-           WiFi.RSSI(), WiFi.channel(),
-           ESP.getFreeHeap(), ESP.getMinFreeHeap(),
+           WiFi.RSSI(),
+           WiFi.channel(),
+           safe(cpuTemp),
+           ESP.getCpuFreqMHz(),
+           ESP.getFreeHeap(),
+           ESP.getMinFreeHeap(),
            millis() / 1000,
            WiFi.localIP().toString().c_str(),
            mqtt.connected() ? "true" : "false");
@@ -1270,7 +1288,7 @@ void setup()
   // ---------- WIFI STACK ----------
   WiFi.mode(WIFI_STA);
   WiFi.persistent(false);
-  WiFi.setSleep(false);
+  WiFi.setSleep(WIFI_SLEEP);
   WiFi.setAutoReconnect(true);
   WiFi.onEvent(WiFiEvent);
   WiFi.disconnect(true, true);

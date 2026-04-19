@@ -1,5 +1,7 @@
-void startWeb() {
-    server.on("/", HTTP_GET, [](AsyncWebServerRequest *req) {
+void startWeb()
+{
+    server.on("/", HTTP_GET, [](AsyncWebServerRequest *req)
+    {
         const char page[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
@@ -7,6 +9,7 @@ void startWeb() {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
 <style>
 body { font-family:system-ui; background:#0e0e0e; color:#eee; margin:16px; }
 h1 { margin-bottom:6px; font-size:20px; }
@@ -17,6 +20,7 @@ canvas { width:100%; }
 .sys { margin-top:8px; font-size:13px; line-height:1.4; }
 </style>
 </head>
+
 <body>
 
 <h1>ESP32 dlogger</h1>
@@ -25,6 +29,8 @@ canvas { width:100%; }
 <b>System info</b><br>
 Device: <span id="device_id">--</span><br>
 SSID: <span id="wifi_ssid">--</span><br>
+CPU freq: <span id="cpu_freq">--</span> MHz<br>
+CPU temp: <span id="cpu_temp">--</span> °C<br>
 <div id="sys"></div>
 </div>
 
@@ -39,6 +45,7 @@ SSID: <span id="wifi_ssid">--</span><br>
 </div>
 
 <script>
+
 const tempEl = document.getElementById("temp_val");
 const humEl = document.getElementById("hum_val");
 const presEl = document.getElementById("pres_val");
@@ -46,9 +53,13 @@ const luxEl = document.getElementById("lux_val");
 const co2El = document.getElementById("co2_val");
 const ld1020El = document.getElementById("ld1020_val");
 const am312El = document.getElementById("am312_val");
+
 const deviceEl = document.getElementById("device_id");
 const ssidEl = document.getElementById("wifi_ssid");
 const sysEl = document.getElementById("sys");
+
+const cpuFreqEl = document.getElementById("cpu_freq");
+const cpuTempEl = document.getElementById("cpu_temp");
 
 const UPDATE_INTERVAL = 5000;
 const HISTORY_DURATION = 60*60*1000;
@@ -78,22 +89,31 @@ function subplot(id,color,vmin,vmax,vbase,gmin,gmax,gbase){
             }
         }
     });
-    c.vbase=vbase; c.gbase=gbase;
+    c.vbase=vbase;
+    c.gbase=gbase;
     return c;
 }
 
 function pushSub(chart,value,grad){
     const l=chart.data.labels;
-    const v=chart.data.datasets[0].data; const vb=chart.data.datasets[1].data;
-    const g=chart.data.datasets[2].data; const gb=chart.data.datasets[3].data;
-    v.push(value); vb.push(chart.vbase);
-    g.push(grad); gb.push(chart.gbase);
+    const v=chart.data.datasets[0].data;
+    const vb=chart.data.datasets[1].data;
+    const g=chart.data.datasets[2].data;
+    const gb=chart.data.datasets[3].data;
+
+    v.push(value);
+    vb.push(chart.vbase);
+    g.push(grad);
+    gb.push(chart.gbase);
     l.push("");
-    if(v.length>MAX_POINTS){ v.shift(); vb.shift(); g.shift(); gb.shift(); l.shift(); }
+
+    if(v.length>MAX_POINTS){
+        v.shift(); vb.shift(); g.shift(); gb.shift(); l.shift();
+    }
     chart.update("none");
 }
 
-// Charts
+// charts
 const tempChart = subplot("tempChart","#f00",10,30,20,-1,1,0);
 const humChart = subplot("humChart","#09f",20,80,50,-2,2,0);
 const presChart = subplot("presChart","#fc5",900,1100,1000,-1,1,0);
@@ -106,19 +126,24 @@ async function update(){
     const r = await fetch("/data");
     const j = await r.json();
 
-    deviceEl.innerText=j.device;
-    ssidEl.innerText=j.ssid;
-    co2El.innerText=j.co2.toFixed(0);
-    tempEl.innerText=j.temp.toFixed(2);
-    humEl.innerText=j.hum.toFixed(2);
-    presEl.innerText=j.pres.toFixed(1);
-    luxEl.innerText=j.lux.toFixed(1);
-    ld1020El.innerText=j.ld1020_motion?"Yes":"No";
-    am312El.innerText=j.am312_motion?"Yes":"No";
+    deviceEl.innerText = j.device;
+    ssidEl.innerText = j.ssid;
+
+    cpuFreqEl.innerText = j.cpu_freq;
+    cpuTempEl.innerText = j.cpu_temp.toFixed(1);
+
+    co2El.innerText = j.co2.toFixed(0);
+    tempEl.innerText = j.temp.toFixed(2);
+    humEl.innerText = j.hum.toFixed(2);
+    presEl.innerText = j.pres.toFixed(1);
+    luxEl.innerText = j.lux.toFixed(1);
+
+    ld1020El.innerText = j.ld1020_motion ? "Yes" : "No";
+    am312El.innerText = j.am312_motion ? "Yes" : "No";
 
     pushSub(tempChart,j.temp,j.temp_grad*PER_MINUTE);
     pushSub(humChart,j.hum,j.hum_grad*PER_MINUTE);
-    pushSub(presChart,j.pres,j.pres_grad ? j.pres_grad*PER_MINUTE : 0);
+    pushSub(presChart,j.pres,0);
     pushSub(luxChart,j.lux,0);
     pushSub(co2Chart,j.co2,j.co2_grad*PER_MINUTE);
     pushSub(ld1020Chart,j.ld1020_motion?1:0,0);
@@ -133,6 +158,8 @@ async function update(){
 }
 
 setInterval(update,UPDATE_INTERVAL);
+update();
+
 </script>
 </body>
 </html>
@@ -141,7 +168,8 @@ setInterval(update,UPDATE_INTERVAL);
         req->send_P(200, "text/html", page);
     });
 
-    server.on("/data", HTTP_GET, [](AsyncWebServerRequest *req) {
+    server.on("/data", HTTP_GET, [](AsyncWebServerRequest *req)
+    {
         req->send(200, "application/json", jsonData());
     });
 
