@@ -196,9 +196,64 @@ Adafruit_BMP280 bmp;
 Adafruit_TSL2591 tsl = Adafruit_TSL2591(2591);
 SCD4x scd4;
 
+
 ////////////////////////////////////////////////////////////
-// LED
+// LED HELPERS (blocking)
 ////////////////////////////////////////////////////////////
+
+inline void led_set(uint8_t r, uint8_t y, uint8_t g)
+{
+  ledcWrite(PIN_LED_R, r);
+  ledcWrite(PIN_LED_Y, y);
+  ledcWrite(PIN_LED_G, g);
+}
+
+inline void led_off()
+{
+  led_set(0,0,0);
+}
+
+void led_flash(uint8_t r, uint8_t y, uint8_t g,
+               uint16_t on_ms,
+               uint16_t off_ms)
+{
+  led_set(r,y,g);
+  delay(on_ms);
+  led_off();
+  delay(off_ms);
+}
+
+////////////////////////////////////////////////////////////
+// LED SEQUENCES
+////////////////////////////////////////////////////////////
+
+void led_ntp_success_sequence()
+{
+  const uint16_t ON  = 180;
+  const uint16_t OFF = 120;
+
+  // stop normal LED logic visually
+  led_off();
+  delay(150);
+
+  led_flash(0,0,255, ON, OFF); // G
+  led_flash(0,255,0, ON, OFF); // Y
+  led_flash(255,0,0, ON, OFF); // R
+  led_flash(0,255,0, ON, OFF); // Y
+  led_flash(0,0,255, ON, OFF); // G
+
+  // nice finish fade hold
+  led_set(0,0,255);
+  delay(400);
+
+  led_off();
+}
+
+
+////////////////////////////////////////////////////////////
+// LED PWM
+////////////////////////////////////////////////////////////
+
 constexpr uint8_t PWM_RES = 8;      // PWM resolution (bits)
 constexpr uint32_t PWM_FREQ = 200; // PWM frequency (Hz)
 
@@ -695,10 +750,16 @@ void sync_ntp_time()
         Serial.print(".");
         retry++;
     }
+
     if (retry >= max_retry)
+    {
         Serial.println("\n[NTP] Time sync failed!");
+    }
     else
+    {
         Serial.println("\n[NTP] Time synced!");
+        led_ntp_success_sequence();   // ← add here
+    }
 }
 ////////////////////////////////////////////////////////////
 // LED OUTPUT
@@ -1054,6 +1115,7 @@ void connect_MQTT()
     return;
 
   if (millis() - lastMqttTry < 5000)
+  if (millis() - lastMqttTry < 5000)
     return;
 
   lastMqttTry = millis();
@@ -1170,10 +1232,12 @@ void setupOTA()
 
     ArduinoOTA
         .onStart([]() {
-            Serial.println("[OTA] Start");
+            Serial.println("[OTA] Start");  
+            led_set(255, 255, 0); // ota indicator  
         })
         .onEnd([]() {
             Serial.println("\n[OTA] End");
+            led_set(0, 0, 255); // ota indicator 
         })
         .onProgress([](unsigned int progress, unsigned int total) {
             Serial.printf("[OTA] %u%%\r", progress * 100 / total);
@@ -1266,6 +1330,13 @@ bool wait_for_wifi(uint32_t timeout_ms = 15000)
 ////////////////////////////////////////////////////////////
 void setup()
 {
+    
+  
+  setupLED();
+    
+  led_set(64, 64, 64); // boot indicator  
+    
+    
   // ---------- SERIAL ----------
   Serial.begin(115200);
   Serial.setDebugOutput(true);
@@ -1273,17 +1344,19 @@ void setup()
   Serial.println("\n===== BOOT =====");
   Serial.printf("Reset reason: %d\n", esp_reset_reason());
 
+
   // ---------- I2C / HARDWARE FIRST ----------
   Wire.setTimeout(50);
   Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
   Wire.setClock(100000);
+
 
   scan_i2c_devices();
   init_i2c_sensors();
 
   setup_LD1020();
   setup_AM312();
-  setupLED();
+
 
   // ---------- WIFI STACK ----------
   WiFi.mode(WIFI_STA);

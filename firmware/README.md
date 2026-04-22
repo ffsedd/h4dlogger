@@ -115,18 +115,18 @@ Use one and only one of the options above, otherwise the board and/or the power 
 # ESP32-C3 Super Mini
 ($2)
 5VIN 3VOUT
-
-
+decoupling 5V input: 470 µF + 100 nF
+decoupling 3V3 output: 10 µF + 100 nF
 ## SENSORS
 
 # AM312 Mini Pyroelectric PIR 
-3-12VIN
+3-12VIN, use: 5V
 < .05 mA
 https://www.image.micros.com.pl/_dane_techniczne_auto/cz%20am312.pdf
 HT30 linear voltage regulator
 
 # LD1020 Human Microwave Radar ($2)   
-5VIN 3VOUT
+5VIN 3VOUT, use 5V!
 < .05 mA
 decoupling input: 10 µF + 100 nF 
 https://rajguruelectronics.com/Product/21153/170624162821.pdf
@@ -138,7 +138,7 @@ decoupling input: 100 nF (104),optional 1 µF if cable >10 cm
 https://sensirion.com/products/catalog/SHT40
 
 # SCD40 CO2 ($20)
-3V
+3V (5V more stable? check datasheet, measure output - 3v3?)
 < 100 mA
 decoupling input: 1 µF + 100 nF
 https://sensirion.com/products/catalog/SCD40
@@ -172,3 +172,39 @@ I2C pullups on 2 sensors only
 
 place ESP32 in the middle (short wires)
 keep LD1020 sensor and wire away from I2C (RF noise)
+
+
+
+
+
+Voltage Test (The "Sag" Check)
+
+Measure with a multimeter while the device is fully assembled and running:
+
+    No-Load: Measure charger output alone. Must be < 5.5V.
+
+    Under-Load: Measure at the ESP32 VIN pin while WiFi is connecting.
+
+        > 4.7V: Stable.
+
+        < 4.5V: Your Nokia charger is too weak; ESP32 will likely brownout.
+
+I2C Pull-up Check
+
+Measure resistance between SDA and 3.3V (with power OFF):
+
+    Target: 2kΩ to 10kΩ.
+
+    If < 2kΩ (too many sensors with built-in resistors), the I2C bus may fail to communicate.
+
+Heat Check
+
+The SCD40 and the ESP32 generate heat.
+
+    Rule: Mount the SHT40 (Temp) at the bottom or on a "stalk" away from the SCD40/ESP32 to prevent false high temperature readings.
+    
+    
+    
+    
+    
+    

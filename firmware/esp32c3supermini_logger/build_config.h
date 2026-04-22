@@ -1,2 +1,2 @@
 #pragma once
-#define DEVICE_ID "playroom"
+#define DEVICE_ID "kitchen"
