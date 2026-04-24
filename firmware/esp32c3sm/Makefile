@@ -3,7 +3,7 @@
 ############################################################
 
 BOARD        := esp32:esp32:nologo_esp32c3_super_mini
-SKETCH       := esp32c3supermini_logger.ino
+SKETCH       := esp32c3sm.ino
 PORT         := /dev/ttyACM0
 BAUDRATE     := 115200
 UPLOADSPEED  := 460800

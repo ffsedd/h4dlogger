@@ -3,10 +3,10 @@
 ### 1. Add and edit WiFi secrets
 
 ```bash
-cp firmware/esp32c3sm/wifi_secrets_example.h \
-   firmware/esp32c3sm/wifi_secrets.h
+cp firmware/esp32_logger/wifi_secrets_example.h \
+   firmware/esp32_logger/wifi_secrets.h
 
-nano firmware/esp32c3sm/wifi_secrets.h
+nano firmware/esp32_logger/wifi_secrets.h
 ```
 ---
 
@@ -43,13 +43,13 @@ arduino-cli lib install "SparkFun SCD4x Arduino Library"
 ---
 ## Compile firmware
 ```bash
-arduino-cli compile --fqbn esp32:esp32:nologo_esp32c3_super_mini --verbose firmware/esp32c3sm
+arduino-cli compile --fqbn esp32:esp32:esp32 --verbose firmware/esp32_logger
 ```
 ---
 ## Upload firmware
 ```bash
 PORT=/dev/ttyUSB0
-arduino-cli upload -p $PORT --fqbn esp32:esp32:nologo_esp32c3_super_mini firmware/esp32c3sm
+arduino-cli upload -p $PORT --fqbn esp32:esp32:esp32 firmware/esp32_logger
 ```
 ---
 ## Monitor serial
