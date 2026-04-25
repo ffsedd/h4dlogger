@@ -874,8 +874,8 @@ void updateLED()
   switch (blinkMode)
   {
     case BlinkMode::GREEN_IDLE:
-      period = 1000;
-      onTime = 2;
+      period = 2000;
+      onTime = 1;
       break;
 
     case BlinkMode::SLOW_RED:
