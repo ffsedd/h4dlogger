@@ -3,7 +3,7 @@
 ############################################################
 
 BOARD        := esp32:esp32:nologo_esp32c3_super_mini
-SKETCH       := esp32c3sm.ino
+SKETCH       := esp32testwifi.ino
 PORT         := /dev/ttyACM0
 BAUDRATE     := 115200
 UPLOADSPEED  := 460800
@@ -64,7 +64,4 @@ ls:
 	arduino-cli board list
 
 clean:
-	# delete build config
 	rm -rf build $(CONFIG_FILE)
-	# delete cache
-	rm -rf ~/.cache/arduino/sketches
