@@ -33,7 +33,7 @@ String buildJSON()
     /* =========================
        LIVE VALUES (UI)
     ========================= */
-    out += "\"cps\":" + String(cps, 2) + ",";
+    out += "\"cps\":" + String(cps, 0) + ",";
     out += "\"mean\":" + String(cpsMean, 3) + ",";
     out += "\"rssi\":" + String(getRSSI()) + ",";
     out += "\"cpuTemp\":" + String(getCpuTemp(), 1) + ",";
@@ -144,8 +144,9 @@ canvas{
 </table>
 
 <div class="header">
-    <div>CPS <span id="cps" class="value">0</span></div>
-    <div>MEAN <span id="mean" class="value" style="color:#ffcc00">0</span></div>
+    <div>CPS <span id="mean" class="value" style="color:#ffcc00">0</span></div>
+    <div>CNTS <span id="cps" class="value">0</span></div>
+
 </div>
 
 
@@ -202,7 +203,7 @@ async function update()
     try {
         const d = await (await fetch('/data')).json();
 
-        document.getElementById('cps').innerText = d.cps.toFixed(2);
+        document.getElementById('cps').innerText = d.cps.toFixed(0);
         document.getElementById('mean').innerText = d.mean.toFixed(3);
         document.getElementById('rssi').innerText = d.rssi + " dBm";
         document.getElementById('temp').innerText = d.cpuTemp.toFixed(1) + " °C";
