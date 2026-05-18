@@ -12,6 +12,12 @@
 
 #include "build_config.h"
 
+#include "threshold_alarm.hpp"
+#include <iostream>
+#include <chrono>
+
+using clock = std::chrono::steady_clock;
+static alarm::ThresholdAlarm alarm({10, 1, std::chrono::seconds(2)});
 
 /* =====================================================
    External INTERFACES
@@ -31,7 +37,7 @@ static constexpr int GEIGER_PIN = 10;
 #define CPU_FREQ_MHZ 80
 
 static constexpr uint32_t SAMPLE_INTERVAL_MS = 1000;
-static constexpr uint32_t CPS_WINDOW = 600;
+static constexpr uint32_t CPS_WINDOW = 10;
 
 /* =====================================================
    GEIGER STATE
@@ -96,9 +102,9 @@ void readSensors()
     interrupts();
 
     cps = pulses;
-    cpsMean = avg();
 
     cpsBuffer[bufIndex] = cps;
+    cpsMean = avg();
     avgBuffer[bufIndex] = cpsMean;
 
     bufIndex++;
@@ -139,6 +145,11 @@ void setup()
 
     sync_ntp_time();
 
+    alarm.set_callback([](alarm::State s)
+                       {
+        if (s == alarm::State::Alarm)
+            Serial.println("ALARM!"); });
+
     setCpuFrequencyMhz(CPU_FREQ_MHZ);
 
     Serial.println("System ready");
@@ -161,6 +172,8 @@ void loop()
         lastSampleMs += SAMPLE_INTERVAL_MS;
 
         readSensors();
+
+        alarm.update(cpsMean, clock::now());
 
         Serial.printf(
             "CPS=%.2f AVG=%.2f RSSI=%d TX_POWER=%.1f CPU=%.1fC\n",
