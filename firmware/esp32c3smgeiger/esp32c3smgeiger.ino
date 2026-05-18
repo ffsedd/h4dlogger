@@ -23,9 +23,9 @@ void handleWebLoop();
 /* =====================================================
    CONFIG
 ===================================================== */
-
-constexpr gpio_num_t PIN_I2C_SDA = GPIO_NUM_7;
 constexpr gpio_num_t PIN_I2C_SCL = GPIO_NUM_6;
+constexpr gpio_num_t PIN_I2C_SDA = GPIO_NUM_7;
+
 static constexpr int GEIGER_PIN = 10;
 
 #define CPU_FREQ_MHZ 80
