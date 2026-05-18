@@ -26,6 +26,8 @@ Initialize configuration:
 ```bash
 arduino-cli config init
 arduino-cli core update-index
+arduino-cli core install esp32:esp32
+arduino-cli core list
 ```
 
 ## Install ESP32 board and libraries
@@ -39,6 +41,7 @@ arduino-cli lib install "Adafruit SHT4x Library"
 arduino-cli lib install "Adafruit BMP280 Library"
 arduino-cli lib install "Adafruit TSL2591 Library"
 arduino-cli lib install "SparkFun SCD4x Arduino Library"
+arduino-cli lib install "hd44780" # LCD 1602
 ```
 ---
 ## Compile firmware

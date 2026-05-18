@@ -2,7 +2,7 @@
 # USER CONFIG
 ############################################################
 
-BOARD        := esp32:esp32:nologo_esp32c3_super_mini
+BOARD        := esp32:esp32:esp32c3
 SKETCH       := esp32c3smgeiger.ino
 PORT         := /dev/ttyACM0
 BAUDRATE     := 115200

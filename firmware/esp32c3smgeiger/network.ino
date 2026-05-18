@@ -1,3 +1,5 @@
+#include "network.h"
+
 #define NTP_SERVER "tak.cesnet.cz"
 #define TZ_INFO "CET-1CEST,M3.5.0,M10.5.0/3"
 
@@ -5,23 +7,64 @@
    WIFI
 ===================================================== */
 
-void connectWiFi()
+void connectWiFi(
+    uint32_t timeout_ms,
+    wifi_power_t tx_power)
 {
+    if (WiFi.isConnected())
+    {
+        return;
+    }
+
     WiFi.mode(WIFI_STA);
-    WiFi.setTxPower(WIFI_POWER_8_5dBm); // hack for connection failures?
+    WiFi.setTxPower(tx_power);
+
+    Serial.print("WiFi connecting");
+
     WiFi.begin(WIFI_SSID, WIFI_PASS);
 
-    Serial.print("WiFi");
+    const uint32_t t0 = millis();
 
-    while (!WiFi.isConnected())
+    while (WiFi.status() != WL_CONNECTED)
     {
-        delay(300);
+        if (millis() - t0 > timeout_ms)
+        {
+            Serial.println("\nWiFi connection failed");
+            return;
+        }
+
+        delay(500);
         Serial.print(".");
     }
 
-    Serial.print("\nWifi Connected, IP: ");
+    Serial.println();
+    Serial.print("WiFi connected, IP: ");
     Serial.println(WiFi.localIP());
 }
+
+
+void reconnectWiFi()
+{
+    static uint32_t last_attempt_ms = 0;
+
+    if (WiFi.status() == WL_CONNECTED)
+    {
+        return;
+    }
+
+    uint32_t now = millis();
+
+    if (now - last_attempt_ms < 5000)
+    {
+        return;
+    }
+
+    last_attempt_ms = now;
+
+    Serial.println("WiFi reconnecting...");
+    connectWiFi();
+}
+
 
 /* =====================================================
    OTA

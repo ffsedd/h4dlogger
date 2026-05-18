@@ -4,12 +4,14 @@
 #include <string.h>
 
 #include "wifi_secrets.h"
+#include "network.h"
 #include "utils.h"
 #include "lcd_ui.h"
 
 #include <ArduinoOTA.h>
 
 #include "build_config.h"
+
 
 /* =====================================================
    External INTERFACES
@@ -130,6 +132,7 @@ void setup()
 
     lcdInit();
     scan_i2c_devices();
+
     startWeb();
 
     setupOTA();
@@ -147,6 +150,7 @@ void setup()
 
 void loop()
 {
+    reconnectWiFi();
     ArduinoOTA.handle();
 
     handleWebLoop();
