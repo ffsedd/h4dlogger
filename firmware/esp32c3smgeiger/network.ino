@@ -38,8 +38,14 @@ void connectWiFi(
     }
 
     Serial.println();
-    Serial.print("WiFi connected, IP: ");
+    Serial.println("WiFi connected");
+
+    Serial.print("Hostname: ");
+    Serial.println(WiFi.getHostname());
+
+    Serial.print("IP address: ");
     Serial.println(WiFi.localIP());
+    Serial.println("Try http://" + WiFi.getHostname().toString()) + ".local";);
 }
 
 
