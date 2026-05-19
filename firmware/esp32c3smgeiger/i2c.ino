@@ -21,17 +21,34 @@ struct I2CDeviceInfo
 
 static const I2CDeviceInfo knownDevices[] =
     {
-        {0x20, "MCP23017"},
-        {0x21, "MCP23017"},
-        {0x27, "PCF8574 LCD"},
-        {0x3C, "SSD1306 OLED"},
-        {0x29, "TSL2591"},
-        {0x40, "SHT4x"},
-        {0x44, "SHT4x"},
-        {0x48, "ADS1115"},
-        {0x68, "MPU6050"},
-        {0x76, "BMP280"},
-        {0x77, "BMP280"}};
+        {0x20, "MCP23017 GPIO Expander"},
+        {0x21, "MCP23017 GPIO Expander"},
+
+        {0x22, "MCP23017 (alt addr)"},
+
+        {0x27, "PCF8574 LCD Backpack"},
+        {0x3F, "PCF8574 LCD Backpack (alt)"},
+
+        {0x3C, "SSD1306 OLED (128x32/128x64)"},
+        {0x3D, "SSD1306 OLED (alt addr)"},
+
+        {0x29, "TSL2591 Light Sensor"},
+        {0x39, "TSL2561 Light Sensor (legacy)"},
+        {0x49, "TSL2561 (alt addr)"},
+
+        {0x40, "SHT21 / SHTC3 Temp/Humidity"},
+        {0x44, "SHT31 / SHT4x Temp/Humidity"},
+        {0x45, "SHT31 / SHT4x (alt addr)"},
+
+        {0x48, "ADS1115 ADC"},
+        {0x4A, "ADS1115 (alt addr)"},
+        {0x4B, "ADS1115 (alt addr)"},
+
+        {0x68, "MPU6050 IMU / RTC variants"},
+        {0x69, "MPU6050 (alt addr)"},
+
+        {0x76, "BMP280 / BME280 Pressure Sensor"},
+        {0x77, "BMP280 / BME280 (alt addr)"}};
 
 /* =====================================================
    NAME LOOKUP

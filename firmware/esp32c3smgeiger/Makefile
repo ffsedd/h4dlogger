@@ -2,7 +2,9 @@
 # USER CONFIG
 ############################################################
 
-BOARD        := esp32:esp32:esp32c3
+# BOARD        := esp32:esp32:esp32c3
+BOARD        := esp32:esp32:nologo_esp32c3_super_mini
+
 SKETCH       := esp32c3smgeiger.ino
 PORT         := /dev/ttyACM0
 BAUDRATE     := 115200
@@ -50,6 +52,7 @@ upload:
 		--upload-property upload.speed=$(UPLOADSPEED) \
 		$(SKETCH)
 
+
 monitor:
 	arduino-cli monitor -p $(PORT) -c baudrate=$(BAUDRATE)
 
@@ -60,8 +63,12 @@ ota:
 		--fqbn $(BOARD) \
 		$(SKETCH)
 
+flash: upload monitor
+
 ls:
 	arduino-cli board list
 
 clean:
-	rm -rf build $(CONFIG_FILE)
+	
+# 	rm -rf build $(CONFIG_FILE)
+	rm -rf ~/.cache/arduino/sketches

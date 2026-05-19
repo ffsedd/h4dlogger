@@ -7,7 +7,7 @@
 #include "network.h"
 #include "utils.h"
 #include "lcd_ui.h"
-
+// #include "oled_ui.h"
 #include <ArduinoOTA.h>
 
 #include "build_config.h"
@@ -16,8 +16,16 @@
 #include <iostream>
 #include <chrono>
 
-using clock = std::chrono::steady_clock;
-static alarm::ThresholdAlarm alarm({10, 1, std::chrono::seconds(2)});
+using steady_clock = std::chrono::steady_clock;
+
+static soundAlarm::ThresholdAlarm soundAlarmEngine(
+    {10, 1, std::chrono::seconds(2)});
+
+volatile bool alarmActive = false;
+constexpr int BUZZER_CHANNEL = 0;
+constexpr int BUZZER_PIN = 3;
+constexpr int PWM_FREQ = 2000;
+constexpr int PWM_RES = 8;
 
 /* =====================================================
    External INTERFACES
@@ -32,12 +40,12 @@ void handleWebLoop();
 constexpr gpio_num_t PIN_I2C_SCL = GPIO_NUM_6;
 constexpr gpio_num_t PIN_I2C_SDA = GPIO_NUM_7;
 
-static constexpr int GEIGER_PIN = 10;
+static constexpr int GEIGER_PIN = 1;
 
 #define CPU_FREQ_MHZ 80
 
 static constexpr uint32_t SAMPLE_INTERVAL_MS = 1000;
-static constexpr uint32_t CPS_WINDOW = 10;
+static constexpr uint32_t CPS_WINDOW = 30;
 
 /* =====================================================
    GEIGER STATE
@@ -125,7 +133,22 @@ void setup()
     Serial.begin(115200);
     delay(500);
 
+    Serial.println("\n\n=== Starting ESP32-C3 Geiger Counter ===");
+    Serial.printf("CPU Frequency: %d MHz\n", getCpuFrequencyMhz());
+    Serial.printf("SDK Version: %s\n", ESP.getSdkVersion());
+    Serial.printf("Free Heap: %u bytes\n", ESP.getFreeHeap());
+    Serial.printf("Flash Size: %u bytes\n", ESP.getFlashChipSize());
+    Serial.printf("Flash Speed: %u Hz\n", ESP.getFlashChipSpeed());
+    Serial.printf("Flash Mode: %s\n", ESP.getFlashChipMode() == FM_QIO ? "QIO" : "DIO");
+    Serial.printf("Unique ID: %s\n", WiFi.macAddress().c_str());
+
+    Serial.println("Connecting to WiFi...");
+
     connectWiFi();
+
+    ledcAttach(BUZZER_PIN, PWM_FREQ, PWM_RES);
+    ledcAttachChannel(BUZZER_CHANNEL, PWM_FREQ, PWM_RES, 0);
+    ledcWriteTone(BUZZER_CHANNEL, 0);
 
     pinMode(GEIGER_PIN, INPUT);
     attachInterrupt(
@@ -145,10 +168,17 @@ void setup()
 
     sync_ntp_time();
 
-    alarm.set_callback([](alarm::State s)
-                       {
-        if (s == alarm::State::Alarm)
-            Serial.println("ALARM!"); });
+    soundAlarmEngine.set_callback([](soundAlarm::State s)
+                                  {
+    if (s == soundAlarm::State::Alarm)
+    {
+        Serial.println("ALARM!");
+        alarmActive = true;
+    }
+    else
+    {
+        alarmActive = false;
+    } });
 
     setCpuFrequencyMhz(CPU_FREQ_MHZ);
 
@@ -173,8 +203,7 @@ void loop()
 
         readSensors();
 
-        alarm.update(cpsMean, clock::now());
-
+        soundAlarmEngine.update(cpsMean, steady_clock::now());
         Serial.printf(
             "CPS=%.2f AVG=%.2f RSSI=%d TX_POWER=%.1f CPU=%.1fC\n",
             cps,
@@ -184,5 +213,31 @@ void loop()
             temperatureRead());
 
         lcdUpdate(cps, cpsMean);
+    }
+
+    if (alarmActive)
+    {
+        static uint32_t lastBeep = 0;
+        static bool beepOn = false;
+
+        uint32_t now = millis();
+
+        // pattern: 2 beeps every ~600ms (Geiger-style alarm)
+        if (!beepOn && now - lastBeep > 400)
+        {
+            ledcWriteTone(BUZZER_CHANNEL, 2800); // frequency in Hz (sharp audible tone)
+            beepOn = true;
+            lastBeep = now;
+        }
+        else if (beepOn && now - lastBeep > 120)
+        {
+            ledcWriteTone(BUZZER_CHANNEL, 0); // silence
+            beepOn = false;
+            lastBeep = now;
+        }
+    }
+    else
+    {
+        ledcWriteTone(BUZZER_CHANNEL, 0); // always off
     }
 }

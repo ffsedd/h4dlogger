@@ -3,7 +3,7 @@
 #include <functional>
 #include <chrono>
 
-namespace alarm
+namespace soundAlarm
 {
 
     enum class State
@@ -24,7 +24,7 @@ namespace alarm
     public:
         using Callback = std::function<void(State)>;
 
-        explicit ThresholdAlarm(Config cfg);
+        explicit ThresholdAlarm(const Config &cfg);
 
         void update(double value,
                     std::chrono::steady_clock::time_point now);
@@ -46,4 +46,4 @@ namespace alarm
         void change_state(State s);
     };
 
-} // namespace alarm
+} // namespace soundAlarm

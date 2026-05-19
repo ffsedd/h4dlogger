@@ -1,9 +1,9 @@
 #include "threshold_alarm.hpp"
 
-namespace alarm
+namespace soundAlarm
 {
 
-    ThresholdAlarm::ThresholdAlarm(Config cfg)
+    ThresholdAlarm::ThresholdAlarm(const Config &cfg)
         : cfg_(cfg) {}
 
     bool ThresholdAlarm::should_trigger(double v) const noexcept
@@ -65,4 +65,4 @@ namespace alarm
         }
     }
 
-} // namespace alarm
+} // namespace soundAlarm
