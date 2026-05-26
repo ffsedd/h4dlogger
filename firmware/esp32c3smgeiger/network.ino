@@ -45,7 +45,10 @@ void connectWiFi(
 
     Serial.print("IP address: ");
     Serial.println(WiFi.localIP());
-    Serial.println("Try http://" + WiFi.getHostname().toString()) + ".local";);
+    
+    Serial.print("Try http://");
+    Serial.print(WiFi.getHostname());
+    Serial.println(".local");
 }
 
 
