@@ -62,23 +62,23 @@ uint32_t GeigerISR::readAndReset()
 
     total_ += count;
 
-    /* =========================
-       DEBUG HEARTBEAT (SAFE OUTSIDE ISR)
-    ========================= */
-    uint32_t now = millis();
-    if (now - lastDebugMs >= 2000)
-    {
-        lastDebugMs = now;
+    // /* =========================
+    //    DEBUG HEARTBEAT (SAFE OUTSIDE ISR)
+    // ========================= */
+    // uint32_t now = millis();
+    // if (now - lastDebugMs >= 2000)
+    // {
+    //     lastDebugMs = now;
 
-        uint32_t delta = count - lastIsrSnapshot;
-        lastIsrSnapshot = count;
+    //     uint32_t delta = count - lastIsrSnapshot;
+    //     lastIsrSnapshot = count;
 
-        Serial.printf(
-            "[GeigerISR] IRQ snapshot: delta=%lu total=%lu pin=%d\n",
-            (unsigned long)delta,
-            (unsigned long)total_,
-            digitalRead(gpio_));
-    }
+    //     Serial.printf(
+    //         "[GeigerISR] IRQ snapshot: delta=%lu total=%lu pin=%d\n",
+    //         (unsigned long)delta,
+    //         (unsigned long)total_,
+    //         digitalRead(gpio_));
+    // }
 
     return count;
 }

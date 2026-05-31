@@ -44,12 +44,18 @@ WiFiConfig wifi_cfg = {
 
 static Status status;
 
+bool PRINT_STATUS_TO_SERIAL = false;
+
 /* =========================
    GLOBAL STATE
 ========================= */
 
 static soundAlarm::ThresholdAlarm soundAlarmEngine(
-    {10, 1, std::chrono::seconds(2)});
+    {
+        100,                    // threshold
+        1,                      // hysteresis
+        std::chrono::seconds(2) // hold time
+    });
 
 volatile bool alarmActive = false;
 
@@ -81,8 +87,6 @@ static inline float ema_update(float prev, float x)
 void updateStatus()
 {
     const float cps_raw = geiger.readAndReset();
-    Serial.print("Raw CPS: ");
-    Serial.println(cps_raw);
 
     cps_ema = ema_update(cps_ema, cps_raw);
 
@@ -158,7 +162,10 @@ void loop()
         updateStatus();
         soundAlarmEngine.update(status.geiger_cps_smooth, steady_clock::now());
 
-        printStatus(status);
+        if (PRINT_STATUS_TO_SERIAL)
+        {
+            printStatus(status);
+        }
 
         lcdUpdate(status.geiger_cps);
     }
