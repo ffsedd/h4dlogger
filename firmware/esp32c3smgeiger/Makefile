@@ -2,9 +2,7 @@
 # USER CONFIG
 ############################################################
 
-# BOARD        := esp32:esp32:esp32c3
 BOARD        := esp32:esp32:nologo_esp32c3_super_mini
-
 SKETCH       := esp32c3smgeiger.ino
 PORT         := /dev/ttyACM0
 BAUDRATE     := 115200
@@ -16,13 +14,20 @@ IP           ?= 10.11.12.181
 CONFIG_FILE  := build_config.h
 
 ############################################################
+# INTELLISENSE
+############################################################
+
+BUILD_DIR := build
+CC_JSON   := compile_commands.json
+
+############################################################
 # TARGETS
 ############################################################
 
-.PHONY: compile upload monitor ota ls clean
+.PHONY: config compile upload monitor ota flash ls clean ccjson ide all
 
 ############################################################
-# CONFIG FILE (MAKE-BASED DEPENDENCY)
+# CONFIG FILE
 ############################################################
 
 config:
@@ -30,12 +35,13 @@ config:
 	@printf '#pragma once\n#define DEVICE_ID "%s"\n' "$(ID)" > $(CONFIG_FILE)
 
 ############################################################
-# COMPILE (depends on config file)
+# COMPILE
 ############################################################
 
 compile: $(CONFIG_FILE)
 	@echo "Compiling..."
 	cat $(CONFIG_FILE)
+
 	arduino-cli compile --verbose \
 		--fqbn $(BOARD) \
 		$(SKETCH)
@@ -44,7 +50,7 @@ compile: $(CONFIG_FILE)
 # UPLOAD
 ############################################################
 
-upload: 
+upload:
 	@echo "Uploading via SERIAL → $(PORT)"
 	arduino-cli upload --verbose \
 		-p $(PORT) \
@@ -52,23 +58,84 @@ upload:
 		--upload-property upload.speed=$(UPLOADSPEED) \
 		$(SKETCH)
 
+############################################################
+# MONITOR
+############################################################
 
 monitor:
 	arduino-cli monitor -p $(PORT) -c baudrate=$(BAUDRATE)
 
-ota: 
+############################################################
+# OTA UPLOAD
+############################################################
+
+ota:
 	@echo "Uploading OTA → $(IP)"
 	arduino-cli upload --verbose \
 		-p $(IP) \
 		--fqbn $(BOARD) \
 		$(SKETCH)
 
-flash: upload monitor
+############################################################
+# COMBO FLASH
+############################################################
+
+flash: compile upload
+	@sleep 1
+	arduino-cli monitor -p $(PORT) -c baudrate=$(BAUDRATE)
+
+############################################################
+# BOARD LIST
+############################################################
 
 ls:
 	arduino-cli board list
 
+############################################################
+# CLEAN
+############################################################
+
 clean:
-	
-# 	rm -rf build $(CONFIG_FILE)
 	rm -rf ~/.cache/arduino/sketches
+	rm -rf $(BUILD_DIR)
+	rm -f $(CONFIG_FILE)
+	rm -f $(CC_JSON)
+
+############################################################
+# INTELLISENSE GENERATION
+############################################################
+
+ccjson: $(CONFIG_FILE)
+	@echo "Generating compile_commands.json..."
+
+	@rm -rf $(BUILD_DIR)
+	@mkdir -p $(BUILD_DIR)
+
+	arduino-cli compile --verbose \
+		--fqbn $(BOARD) \
+		--build-path $(BUILD_DIR) \
+		--export-binaries \
+		$(SKETCH)
+
+	@echo "Searching compile_commands.json..."
+	@CC=$$(find $(BUILD_DIR) -name compile_commands.json | head -n 1); \
+	if [ -z "$$CC" ]; then \
+		echo "ERROR: compile_commands.json not found"; \
+		exit 1; \
+	fi; \
+	cp $$CC $(CC_JSON)
+
+	@echo "OK → $(CC_JSON) ready"
+
+############################################################
+# VS CODE READY TARGET
+############################################################
+
+ide: ccjson
+	@echo "VS Code IntelliSense ready"
+
+############################################################
+# FULL WORKFLOW
+############################################################
+
+all: ccjson flash

@@ -4,7 +4,3 @@
 
 void lcdInit();
 void lcdUpdate(float cps);
-
-// chart
-void chartPush(float v);
-void drawChart();

@@ -2,10 +2,20 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <esp_wifi.h>
 
-void connectWiFi(uint32_t timeout_ms = 1000,
-                  wifi_power_t tx_power = WIFI_POWER_8_5dBm);
+struct WiFiConfig
+{
+    uint32_t timeout_ms;
+    wifi_power_t tx_power;
+    uint32_t reconnect_period_ms;
+};
 
-void reconnectWiFi();
+bool ensureWiFi(const WiFiConfig &cfg);
+
+void setWifiSleep(bool enabled);
+
 void setupOTA();
 void sync_ntp_time();
+
+int getRSSI();

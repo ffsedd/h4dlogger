@@ -1,79 +1,88 @@
 #include <WebServer.h>
-#include "utils.h"
+#include "status.h"
+
 WebServer server(80);
 
 /* =========================
    EXTERNAL STATE
 ========================= */
 
-extern float cps;
-extern float cpsMean;
-
-extern float cpsBuffer[];
-extern float avgBuffer[];
-
-extern uint32_t bufIndex;
-extern bool bufFull;
-
-extern uint32_t getBufferSize();
+extern Status status;
 
 /* =========================
-   JSON API
+   LOCAL WEB CACHE (UI OWNED)
 ========================= */
-String buildJSON()
+
+static constexpr int HISTORY = 600; // ~10 min @ 1Hz
+static float cpsHistory[HISTORY];
+
+static int head = 0;
+static bool filled = false;
+
+/* =========================
+   HISTORY BUFFER
+========================= */
+
+static void pushSample(float cps)
 {
-    uint32_t n = getBufferSize();
-    uint32_t start = bufFull ? bufIndex : 0;
+    cpsHistory[head++] = cps;
 
-    String out;
-    out.reserve(2500);
+    if (head >= HISTORY)
+    {
+        head = 0;
+        filled = true;
+    }
+}
 
-    out += "{";
+static void buildHistoryArray(String &out)
+{
+    int size = filled ? HISTORY : head;
+    int start = filled ? head : 0;
 
-    /* =========================
-       LIVE VALUES (UI)
-    ========================= */
-    out += "\"cps\":" + String(cps, 0) + ",";
-    out += "\"mean\":" + String(cpsMean, 3) + ",";
-    out += "\"rssi\":" + String(getRSSI()) + ",";
-    out += "\"cpuTemp\":" + String(getCpuTemp(), 1) + ",";
-
-    /* =========================
-       CPS SERIES
-    ========================= */
     out += "\"cpsData\":[";
 
-    for (uint32_t i = 0; i < n; i++)
+    for (int i = 0; i < size; i++)
     {
-        uint32_t idx = (start + i) % CPS_WINDOW;
-        out += String(cpsBuffer[idx], 3);
+        int idx = (start + i) % HISTORY;
+        out += String(cpsHistory[idx], 0);
 
-        if (i + 1 < n)
-            out += ",";
-    }
-
-    out += "],";
-
-    /* =========================
-       MEAN SERIES
-    ========================= */
-    out += "\"meanData\":[";
-
-    for (uint32_t i = 0; i < n; i++)
-    {
-        uint32_t idx = (start + i) % CPS_WINDOW;
-        out += String(avgBuffer[idx], 3);
-
-        if (i + 1 < n)
+        if (i + 1 < size)
             out += ",";
     }
 
     out += "]";
+}
+
+/* =========================
+   JSON API
+========================= */
+
+String buildJSON()
+{
+    // update web cache
+    pushSample(status.geiger_cps);
+
+    String out;
+    out.reserve(800);
+
+    out += "{";
+
+    out += "\"cps\":" + String(status.geiger_cps, 0) + ",";
+    out += "\"mean\":" + String(status.geiger_cps_smooth, 3) + ",";
+    out += "\"rssi\":" + String(status.wifi_rssi) + ",";
+    out += "\"cpuTemp\":" + String(status.cpu_temp, 1) + ",";
+    out += "\"total\":" + String((uint64_t)status.geiger_total_count) + ",";
+
+    out += "\"wifi\":" + String(status.wifi_connected ? "true" : "false") + ",";
+    out += "\"alarm\":" + String(status.alarm_active ? "true" : "false") + ",";
+
+    buildHistoryArray(out);
 
     out += "}";
 
     return out;
 }
+
 /* =========================
    UI
 ========================= */
@@ -94,38 +103,20 @@ body{
     color:#cfd8dc;
     font-family:monospace;
 }
-
 .header{
     display:flex;
     gap:40px;
     font-size:34px;
     margin-bottom:10px;
 }
-
 .value{
     font-weight:bold;
     font-size:48px;
     color:#00e5ff;
 }
 .status{
-    margin-top:8px;
     font-size:13px;
     color:#9fb3c8;
-    border-collapse:collapse;
-}
-
-.status td{
-    padding:2px 10px 2px 0;
-}
-
-.status td:first-child{
-    opacity:0.7;
-}
-
-.status td:last-child{
-    color:#00ff99;
-    text-align:right;
-    font-weight:bold;
 }
 canvas{
     background:#0f1722;
@@ -138,18 +129,16 @@ canvas{
 <body>
 
 <h2>Geiger CPS Monitor</h2>
-<table class="status">
-<tr><td>RSSI</td><td id="rssi">0</td></tr>
-<tr><td>CPU TEMP</td><td id="temp">0</td></tr>
-</table>
 
 <div class="header">
-    <div>CPS <span id="mean" class="value" style="color:#ffcc00">0</span></div>
-    <div>CNTS <span id="cps" class="value">0</span></div>
-
+    <div>CPS <span id="cps" class="value">0</span></div>
+    <div>AVG <span id="mean" class="value" style="color:#ffcc00">0</span></div>
 </div>
 
-
+<div class="status">
+RSSI: <span id="rssi">0</span> |
+TEMP: <span id="temp">0</span> °C
+</div>
 
 <canvas id="chart"></canvas>
 
@@ -157,43 +146,23 @@ canvas{
 const ctx = document.getElementById('chart');
 
 const chart = new Chart(ctx, {
+    type: 'line',
     data: {
         labels: [],
-        datasets: [
-
-        {
-            type: 'bar',
+        datasets: [{
             label: 'CPS',
             data: [],
-            backgroundColor: 'rgba(0,229,255,0.25)',
-            borderWidth: 0
-        },
-
-        {
-            type: 'line',
-            label: 'mean',
-            data: [],
-            borderColor: '#ffcc00',
+            borderColor: '#00e5ff',
             pointRadius: 0,
-            tension: 0.35,
-            borderWidth: 2
-        }
-
-        ]
+            tension: 0.2
+        }]
     },
     options: {
         animation: false,
         responsive: true,
         scales: {
             x: { display: false },
-            y: {
-                beginAtZero: true,
-                ticks: {
-                    font: {
-                        size: 16
-                    }
-                }
-            }
+            y: { beginAtZero: true }
         }
     }
 });
@@ -206,17 +175,18 @@ async function update()
         document.getElementById('cps').innerText = d.cps.toFixed(0);
         document.getElementById('mean').innerText = d.mean.toFixed(3);
         document.getElementById('rssi').innerText = d.rssi + " dBm";
-        document.getElementById('temp').innerText = d.cpuTemp.toFixed(1) + " °C";
+        document.getElementById('temp').innerText = d.cpuTemp.toFixed(1);
 
-        const n = d.cpsData.length;
+        if (d.cpsData)
+        {
+            chart.data.datasets[0].data = d.cpsData;
+            chart.data.labels = d.cpsData.map((_, i) => i);
 
-        chart.data.labels = Array.from({length:n}, (_,i)=>i);
-        chart.data.datasets[0].data = d.cpsData;
-        chart.data.datasets[1].data = d.meanData;
-
-        chart.update('none');
+            chart.update('none');
+        }
     }
-    catch (e) {
+    catch (e)
+    {
         console.log("update failed", e);
     }
 }
