@@ -40,7 +40,7 @@ static constexpr float EMA_ALPHA = 0.15f;
 WiFiConfig wifi_cfg = {
     .timeout_ms = 15000,
     .tx_power = WIFI_POWER_8_5dBm,
-    .reconnect_period_ms = 10000};
+    .reconnect_period_ms = 30000};
 
 static Status status;
 
@@ -149,14 +149,19 @@ void setup()
 
 void loop()
 {
-    ensureWiFi(wifi_cfg);
-    ArduinoOTA.handle();
-    handleWebLoop();
+    if (WiFi.status() == WL_CONNECTED)
+    {
+        ArduinoOTA.handle();
+        handleWebLoop();
+    }
 
     const uint32_t now = millis();
 
     if (now - lastSampleMs >= SAMPLE_INTERVAL_MS)
     {
+
+        ensureWiFi(wifi_cfg);
+
         lastSampleMs += SAMPLE_INTERVAL_MS;
 
         updateStatus();

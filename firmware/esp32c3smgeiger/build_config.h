@@ -1,2 +1,2 @@
 #pragma once
-#define DEVICE_ID "geiger11"
+#define DEVICE_ID "geiger12"

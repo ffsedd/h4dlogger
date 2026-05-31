@@ -254,5 +254,8 @@ void startWeb()
 
 void handleWebLoop()
 {
-    server.handleClient();
+    if (WiFi.status() == WL_CONNECTED)
+    {
+        server.handleClient();
+    }
 }
