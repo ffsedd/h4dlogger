@@ -3,7 +3,7 @@
 ############################################################
 
 BOARD        := esp32:esp32:nologo_esp32c3_super_mini
-SKETCH       := esp32c3smgeiger.ino
+SKETCH       := geiger.ino
 PORT         := /dev/ttyACM0
 BAUDRATE     := 115200
 UPLOADSPEED  := 460800
