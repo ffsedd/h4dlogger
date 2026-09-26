@@ -123,7 +123,9 @@ void read_fast_sensors()
 {
   const float dt = SAMPLE_INTERVAL / 1000.0f;
 
-  read_motion_sensors();
+  // Motion is no longer read here -- it's interrupt-driven (Phase 1) and
+  // drained once per loop() iteration by read_motion_sensors(), called
+  // directly from indooraq.ino so its timing isn't tied to SAMPLE_INTERVAL.
 
   if (shtStat.initialized)
   {

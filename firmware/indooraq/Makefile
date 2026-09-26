@@ -17,7 +17,7 @@ CONFIG_FILE  := build_config.h
 # TARGETS
 ############################################################
 
-.PHONY: compile upload monitor ota ls clean
+.PHONY: compile upload flash monitor ota ls clean
 
 ############################################################
 # CONFIG FILE (MAKE-BASED DEPENDENCY)
@@ -53,10 +53,17 @@ upload:
 monitor:
 	arduino-cli monitor -p $(PORT) -c baudrate=$(BAUDRATE)
 
+############################################################
+# FLASH (compile + upload over serial in one go)
+############################################################
+
+flash: compile upload monitor
+
 ota: 
 	@echo "Uploading OTA → $(IP)"
 	arduino-cli upload --verbose \
 		-p $(IP) \
+		--protocol network \
 		--fqbn $(BOARD) \
 		$(SKETCH)
 
@@ -68,3 +75,9 @@ clean:
 	rm -rf build $(CONFIG_FILE)
 	# delete cache
 	rm -rf ~/.cache/arduino/sketches
+
+
+info:
+	arduino-cli version
+	arduino-cli core list
+	arduino-cli board list

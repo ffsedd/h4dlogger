@@ -55,6 +55,8 @@ void setup()
   setupLED();
   led_set(64, 64, 64); // boot indicator
 
+  setupOnboardLED(); // GPIO8 error-code blinker — see leds.cpp
+
   // ---------- SERIAL ----------
   Serial.begin(115200);
   Serial.setDebugOutput(true);
@@ -104,6 +106,12 @@ void setup()
   bool wifiOk = wait_for_wifi(); // IMPORTANT
   bootLog(wifiOk ? "wifi connected" : "wifi connect FAILED/timeout");
 
+  // From here on, all reconnect scans/connects run on the background
+  // wifi task (Phase 2) -- this initial connect stays synchronous on
+  // purpose, since boot needs WiFi up before NTP/MQTT/web setup below.
+  start_wifi_task();
+  bootLog("wifi background task started");
+
   // ---------- STATUS ----------
   if (WiFi.isConnected())
   {
@@ -149,7 +157,10 @@ void loop()
 
   uint32_t now = millis();
 
-  // ---------- WIFI WATCHDOG ----------
+  // ---------- MOTION (Phase 1: interrupt-driven, every loop tick) ----------
+  read_motion_sensors();
+
+  // ---------- WIFI WATCHDOG (Phase 2: background task) ----------
   wifi_watchdog();
 
   // ---------- MQTT ----------
@@ -170,6 +181,7 @@ void loop()
   }
 
   updateLED();
+  updateOnboardLED();
 
   delay(5);
 }

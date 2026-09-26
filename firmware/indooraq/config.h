@@ -26,6 +26,13 @@ constexpr uint8_t PWM_RES = 8;       // PWM resolution (bits)
 constexpr uint32_t PWM_FREQ = 200;   // PWM frequency (Hz)
 
 // ======================
+// Onboard status LED (single color, active LOW)
+// ======================
+// GPIO8 — free in this project (I2C is remapped to 6/7 below, not the
+// default 8/9), used to blink out a 4-bit error code. See leds.cpp.
+constexpr gpio_num_t PIN_ONBOARD_LED = GPIO_NUM_8;
+
+// ======================
 // Motion sensors
 // ======================
 constexpr gpio_num_t PIN_LD1020 = GPIO_NUM_0;

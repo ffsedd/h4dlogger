@@ -133,12 +133,12 @@ void publish_Agg_values()
   // ---------- CO2 ----------
   mqttSendCSV(ts_center, "scd40", "co2_smooth", co2Smooth);
 
-  // ---------- LD1020 motion ----------
-  if (ld1020Agg.totalCount > 0)
+  // ---------- LD1020 motion (time-weighted duty cycle, see state.h) ----------
+  if (ld1020Agg.totalMs > 0)
     mqttSendCSV(ts_center, "ld1020", "motion_fraction", ld1020Agg.fraction());
 
-  // ---------- AM312 motion ----------
-  if (am312Agg.totalCount > 0)
+  // ---------- AM312 motion (time-weighted duty cycle, see state.h) ----------
+  if (am312Agg.totalMs > 0)
     mqttSendCSV(ts_center, "am312", "motion_fraction", am312Agg.fraction());
 
   // ---------- RESET AGGREGATORS ----------

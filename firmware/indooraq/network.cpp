@@ -1,7 +1,10 @@
 #include "network.h"
 #include "config.h"
 #include "state.h"
-#include "leds.h" // led_ntp_success_sequence()
+#include "leds.h" // led_start_ntp_success_sequence()
+
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 #include "wifi_secrets.h" // defines wifihotspots[] against the WifiHotspots
                            // struct declared in network.h — included here
@@ -102,6 +105,54 @@ bool wait_for_wifi(uint32_t timeout_ms)
 }
 
 ////////////////////////////////////////////////////////////
+// PHASE 2 — BACKGROUND WIFI TASK
+//
+// WiFi.scanNetworks() (inside connect_best_wifi() -> find_best_wifi())
+// blocks for several seconds. Calling it inline from wifi_watchdog() used
+// to stall MQTT keepalive, OTA polling, sensor sampling and the LED
+// update for that whole time, every WIFI_RETRY_MS while disconnected.
+//
+// It now runs on its own low-priority FreeRTOS task. loop() (via
+// wifi_watchdog()) just raises a request flag and polls for the result;
+// the ESP32-C3 is single-core, so this isn't parallel execution, but the
+// scheduler still preempts this task's blocking scan to keep servicing
+// the loop() task, so the stall no longer propagates to MQTT/OTA/LED.
+//
+// All WiFi.scanNetworks()/WiFi.begin() calls after boot go exclusively
+// through this task -- no other code calls them concurrently, since the
+// WiFi driver isn't designed to be driven from two contexts at once.
+////////////////////////////////////////////////////////////
+
+static TaskHandle_t wifiTaskHandle = nullptr;
+static volatile bool wifiReconnectRequested = false;
+static volatile bool wifiResultReady = false;
+static volatile bool wifiConnectResult = false;
+
+static void wifiTask(void *)
+{
+  for (;;)
+  {
+    if (wifiReconnectRequested)
+    {
+      wifiReconnectRequested = false;
+      bool ok = connect_best_wifi(8000); // short timeout, same as before
+      wifiConnectResult = ok;
+      wifiResultReady = true;
+    }
+    vTaskDelay(pdMS_TO_TICKS(200));
+  }
+}
+
+void start_wifi_task()
+{
+  if (wifiTaskHandle)
+    return; // already running
+
+  xTaskCreate(wifiTask, "wifiTask", 4096, nullptr, 1, &wifiTaskHandle);
+  Serial.println("[WiFi] background reconnect task started");
+}
+
+////////////////////////////////////////////////////////////
 // WIFI WATCHDOG
 ////////////////////////////////////////////////////////////
 
@@ -118,11 +169,18 @@ void wifi_watchdog()
   if (wifiOfflineSince == 0)
     wifiOfflineSince = millis();
 
-  if (millis() - wifiLastAttempt > WIFI_RETRY_MS)
+  if (millis() - wifiLastAttempt > WIFI_RETRY_MS && !wifiReconnectRequested)
   {
     wifiLastAttempt = millis();
-    Serial.println("[WiFi] reconnect attempt");
-    connect_best_wifi(8000); // short timeout
+    Serial.println("[WiFi] reconnect requested (background task)");
+    wifiReconnectRequested = true;
+  }
+
+  if (wifiResultReady)
+  {
+    wifiResultReady = false;
+    Serial.printf("[WiFi] background reconnect %s\n",
+                   wifiConnectResult ? "issued WiFi.begin() to best known AP" : "found no known AP in range");
   }
 
   if (millis() - wifiOfflineSince > WIFI_REBOOT_MS)
@@ -175,6 +233,6 @@ void sync_ntp_time()
   else
   {
     Serial.println("\n[NTP] Time synced!");
-    led_ntp_success_sequence();
+    led_start_ntp_success_sequence();
   }
 }

@@ -62,3 +62,8 @@ bool WIFI_SLEEP = true;
 // OTA state
 // ---------------------------------------------------------
 volatile bool otaInProgress = false;
+
+// ---------------------------------------------------------
+// Onboard-LED error signalling
+// ---------------------------------------------------------
+volatile bool otherErrorFlag = false;

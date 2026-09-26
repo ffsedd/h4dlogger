@@ -41,27 +41,61 @@ void led_flash(
 }
 
 ////////////////////////////////////////////////////////////
-// LED SEQUENCES
+// LED SEQUENCES (Phase 3: non-blocking NTP success pattern)
 ////////////////////////////////////////////////////////////
 
-void led_ntp_success_sequence()
+struct FlashStep
 {
-  const uint16_t ON = 180;
-  const uint16_t OFF = 120;
+  uint8_t r, y, g;
+  uint16_t ms;
+};
 
-  led_off();
-  delay(150);
+// off(150), G, off, Y, off, R, off, Y, off, G, off, solid-G(400), off
+static const FlashStep ntpSeq[] = {
+    {0, 0, 0, 150},
+    {0, 0, 255, 180}, {0, 0, 0, 120}, // G
+    {0, 255, 0, 180}, {0, 0, 0, 120}, // Y
+    {255, 0, 0, 180}, {0, 0, 0, 120}, // R
+    {0, 255, 0, 180}, {0, 0, 0, 120}, // Y
+    {0, 0, 255, 180}, {0, 0, 0, 120}, // G
+    {0, 0, 255, 400},                 // solid G
+};
+static constexpr size_t ntpSeqLen = sizeof(ntpSeq) / sizeof(ntpSeq[0]);
 
-  led_flash(0, 0, 255, ON, OFF); // G
-  led_flash(0, 255, 0, ON, OFF); // Y
-  led_flash(255, 0, 0, ON, OFF); // R
-  led_flash(0, 255, 0, ON, OFF); // Y
-  led_flash(0, 0, 255, ON, OFF); // G
+static bool ntpSeqActive = false;
+static size_t ntpSeqIndex = 0;
+static uint32_t ntpSeqStepStart = 0;
 
-  led_set(0, 0, 255);
-  delay(400);
+void led_start_ntp_success_sequence()
+{
+  ntpSeqActive = true;
+  ntpSeqIndex = 0;
+  ntpSeqStepStart = millis();
+  led_set(ntpSeq[0].r, ntpSeq[0].y, ntpSeq[0].g);
+}
 
-  led_off();
+// Advances the sequence if one is running. Returns true while it still
+// owns the LED this frame (so updateLED() knows to skip the CO2 gradient
+// rather than fight it for the same PWM channels).
+static bool serviceNtpSequence()
+{
+  if (!ntpSeqActive)
+    return false;
+
+  uint32_t now = millis();
+  if (now - ntpSeqStepStart >= ntpSeq[ntpSeqIndex].ms)
+  {
+    ntpSeqIndex++;
+    if (ntpSeqIndex >= ntpSeqLen)
+    {
+      ntpSeqActive = false;
+      led_off();
+      return false;
+    }
+    ntpSeqStepStart = now;
+    led_set(ntpSeq[ntpSeqIndex].r, ntpSeq[ntpSeqIndex].y, ntpSeq[ntpSeqIndex].g);
+  }
+  return true;
 }
 
 ////////////////////////////////////////////////////////////
@@ -143,6 +177,11 @@ static void co2_to_led(
 
 void updateLED()
 {
+  // Phase 3: the NTP-success flash pattern, if one is in progress, owns
+  // the LED this frame -- skip the normal CO2 gradient until it's done.
+  if (serviceNtpSequence())
+    return;
+
   const uint32_t now = millis();
 
   ////////////////////////////////////////////////////////////
@@ -248,5 +287,122 @@ void updateLED()
           r,
           static_cast<uint8_t>(blink));
     }
+  }
+}
+
+////////////////////////////////////////////////////////////
+// ONBOARD LED — 4-BIT FRAMED ERROR CODE
+////////////////////////////////////////////////////////////
+//
+// Single-color, active-LOW onboard LED (GPIO8, see config.h). Loops a
+// 4-bit pattern: bit 0 and bit 3 are always 1 (start/stop framing bits),
+// the middle two bits encode current system state:
+//
+//   1 0 0 1   OK
+//   1 1 1 1   WiFi not connected
+//   1 0 1 1   MQTT not connected
+//   1 1 0 1   other error
+//
+// Checked in that priority order every time a new pass starts (WiFi loss
+// is worth knowing about even if MQTT also happens to be down as a
+// result of it). Non-blocking -- advanced a bit-slot at a time from
+// updateOnboardLED(), same style as the CO2 blink engine above.
+////////////////////////////////////////////////////////////
+
+enum class SysCode : uint8_t
+{
+  OK,
+  WIFI_DOWN,
+  MQTT_DOWN,
+  OTHER
+};
+
+static const bool onboardCodeBits[4][4] = {
+    {1, 0, 0, 1}, // 9 = OK
+    {1, 0, 1, 1}, // 11 = WIFI_DOWN
+    {1, 1, 0, 1}, // 13 = MQTT_DOWN
+    {1, 1, 1, 1}, // 15 = OTHER
+};
+
+static constexpr uint32_t OB_BIT_SLOT_MS = 250;  // 4 bits × 250 ms = 1 s
+static constexpr uint32_t OB_GAP_MS = 4000;       // then wait 4 s before repeating
+
+static uint8_t obBitIndex = 0;
+static bool obInGap = false;
+static uint32_t obPhaseStart = 0;
+static SysCode obActiveCode = SysCode::OK;
+
+static inline void onboardWrite(bool on)
+{
+  digitalWrite(PIN_ONBOARD_LED, on ? LOW : HIGH); // active-LOW
+}
+
+void report_other_error(bool active)
+{
+  otherErrorFlag = active;
+}
+
+// Any I2C sensor that was detected on the bus but failed init counts as
+// an "other" error automatically -- no extra wiring needed for that case.
+static bool anySensorFailed()
+{
+  return (shtStat.present && !shtStat.initialized) ||
+         (bmpStat.present && !bmpStat.initialized) ||
+         (tslStat.present && !tslStat.initialized) ||
+         (scdStat.present && !scdStat.initialized);
+}
+
+static SysCode currentSysCode()
+{
+  if (WiFi.status() != WL_CONNECTED)
+    return SysCode::WIFI_DOWN;
+  if (!mqtt.connected())
+    return SysCode::MQTT_DOWN;
+  if (otherErrorFlag || anySensorFailed())
+    return SysCode::OTHER;
+  return SysCode::OK;
+}
+
+void setupOnboardLED()
+{
+  pinMode(PIN_ONBOARD_LED, OUTPUT);
+
+  obActiveCode = SysCode::OK; // corrected at the end of the first pass below
+  obBitIndex = 0;
+  obInGap = false;
+  obPhaseStart = millis();
+  onboardWrite(onboardCodeBits[(uint8_t)obActiveCode][0]); // show bit 0 immediately
+}
+
+void updateOnboardLED()
+{
+  uint32_t now = millis();
+
+  if (obInGap)
+  {
+    if (now - obPhaseStart >= OB_GAP_MS)
+    {
+      obInGap = false;
+      obBitIndex = 0;
+      obPhaseStart = now;
+      obActiveCode = currentSysCode(); // re-evaluate once per pass, not mid-code
+      onboardWrite(onboardCodeBits[(uint8_t)obActiveCode][0]);
+    }
+    return;
+  }
+
+  if (now - obPhaseStart >= OB_BIT_SLOT_MS)
+  {
+    obBitIndex++;
+    obPhaseStart = now;
+
+    if (obBitIndex >= 4)
+    {
+      onboardWrite(false);
+      obInGap = true;
+      return;
+    }
+
+    onboardWrite(onboardCodeBits[(uint8_t)obActiveCode][obBitIndex]);
   }
 }

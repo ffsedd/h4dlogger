@@ -52,17 +52,23 @@ struct am312Status
 };
 extern am312Status am312;
 
+// Duty-cycle aggregator: accumulates *time* spent with motion=true vs the
+// total elapsed time, fed by read_motion_sensors() every loop() iteration
+// (interrupt-driven since Phase 1 — see motion.cpp). This replaced a
+// poll-fraction ("was motion true on N out of M samples taken every
+// SAMPLE_INTERVAL") scheme, which could miss pulses shorter than the poll
+// period entirely.
 struct AM312Agg
 {
-  uint32_t motionCount = 0;
-  uint32_t totalCount = 0;
-  void add(bool motion)
+  uint32_t motionMs = 0;
+  uint32_t totalMs = 0;
+  void addInterval(bool motion, uint32_t ms)
   {
-    if (motion) motionCount++;
-    totalCount++;
+    if (motion) motionMs += ms;
+    totalMs += ms;
   }
-  float fraction() const { return totalCount ? float(motionCount) / totalCount : 0.0f; }
-  void reset() { motionCount = totalCount = 0; }
+  float fraction() const { return totalMs ? float(motionMs) / totalMs : 0.0f; }
+  void reset() { motionMs = totalMs = 0; }
 };
 extern AM312Agg am312Agg;
 
@@ -75,17 +81,18 @@ struct LD1020Status
 };
 extern LD1020Status ld1020;
 
+// See AM312Agg above — same duty-cycle scheme for the LD1020 channel.
 struct LD1020Agg
 {
-  uint32_t motionCount = 0;
-  uint32_t totalCount = 0;
-  void add(bool motion)
+  uint32_t motionMs = 0;
+  uint32_t totalMs = 0;
+  void addInterval(bool motion, uint32_t ms)
   {
-    if (motion) motionCount++;
-    totalCount++;
+    if (motion) motionMs += ms;
+    totalMs += ms;
   }
-  float fraction() const { return totalCount ? float(motionCount) / totalCount : 0.0f; }
-  void reset() { motionCount = totalCount = 0; }
+  float fraction() const { return totalMs ? float(motionMs) / totalMs : 0.0f; }
+  void reset() { motionMs = totalMs = 0; }
 };
 extern LD1020Agg ld1020Agg;
 
@@ -150,6 +157,15 @@ extern bool WIFI_SLEEP;
 // OTA state
 // ---------------------------------------------------------
 extern volatile bool otaInProgress;
+
+// ---------------------------------------------------------
+// Onboard-LED error signalling (see leds.cpp)
+// ---------------------------------------------------------
+// Catch-all "other error" flag any module can raise via
+// report_other_error(true/false) (leds.h) for a condition that doesn't
+// have its own dedicated onboard-LED code yet. No auto-timeout — whoever
+// raises it is responsible for clearing it.
+extern volatile bool otherErrorFlag;
 
 // ---------------------------------------------------------
 // Small shared utility
